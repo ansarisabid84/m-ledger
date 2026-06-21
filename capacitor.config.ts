@@ -1,0 +1,22 @@
+import type { CapacitorConfig } from '@capacitor/cli'
+
+const config: CapacitorConfig = {
+  appId: 'com.sabid.ledgerapp',
+  appName: 'Ledger',
+  webDir: 'dist',
+  backgroundColor: '#0e1311',
+  plugins: {
+    LocalNotifications: {
+      smallIcon: 'ic_stat_icon',
+      iconColor: '#0E9F6E',
+    },
+    SplashScreen: {
+      launchShowDuration: 700,
+      backgroundColor: '#0e1311',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+    },
+  },
+}
+
+export default config
