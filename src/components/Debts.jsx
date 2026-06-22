@@ -91,9 +91,9 @@ export default function Debts({ debts, currency, onAdd, onToggle, onEdit, onDele
       </div>
 
       <div className="card card-pad">
-        <div className="seg" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
+        <div className="debt-tabs" style={{ marginBottom: 14 }}>
           {FILTERS.map(([id, label]) => (
-            <button key={id} className={filter === id ? 'active' : ''} onClick={() => setFilter(id)}>{label}</button>
+            <button key={id} className={'debt-tab' + (filter === id ? ' active' : '')} onClick={() => setFilter(id)}>{label}</button>
           ))}
         </div>
 

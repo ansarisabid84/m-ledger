@@ -49,6 +49,7 @@ export function categoriesFor(type) {
 }
 
 export const CURRENCIES = [
+  { code: 'NPR', symbol: 'रू', locale: 'en-IN' },
   { code: 'INR', symbol: '₹', locale: 'en-IN' },
   { code: 'USD', symbol: '$', locale: 'en-US' },
   { code: 'EUR', symbol: '€', locale: 'de-DE' },

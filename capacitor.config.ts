@@ -16,6 +16,10 @@ const config: CapacitorConfig = {
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
     },
+    StatusBar: {
+      overlaysWebView: true,
+      style: 'DARK',
+    },
   },
 }
 

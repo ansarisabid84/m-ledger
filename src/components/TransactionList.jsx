@@ -1,25 +1,109 @@
 import { useMemo, useState } from 'react'
 import { CATEGORY_MAP, METHOD_MAP, PAYMENT_METHODS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../lib/constants'
-import { fmtMoney, relativeDay, monthLabel } from '../lib/format'
+import { fmtMoney, fmtDate, relativeDay, monthLabel } from '../lib/format'
 import { filterByMonth, listMonths, totals } from '../lib/stats'
 import MonthNav from './MonthNav'
-import { IconSearch, IconEdit, IconTrash, IconList } from './icons'
+import { IconSearch, IconEdit, IconTrash, IconList, IconClose } from './icons'
 
-function TxRow({ t, currency, onEdit, onDelete }) {
+// ─── Detail modal ────────────────────────────────────────────────────────────
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="tx-detail-row">
+      <span className="tx-detail-label">{label}</span>
+      <span className="tx-detail-value">{value}</span>
+    </div>
+  )
+}
+
+function TransactionDetail({ t, currency, onEdit, onDelete, onClose }) {
+  const cat = CATEGORY_MAP[t.category] || { label: t.category, icon: '•' }
+  const method = METHOD_MAP[t.method] || { label: t.method, icon: '•' }
+  const isIncome = t.type === 'income'
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Transaction details">
+        <div className="modal-grab" />
+        <div className="modal-head">
+          <h3 style={{ fontSize: 18 }}>Transaction details</h3>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><IconClose /></button>
+        </div>
+
+        {/* Amount hero */}
+        <div style={{ textAlign: 'center', padding: '8px 0 22px' }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: 18, margin: '0 auto 14px',
+            background: isIncome ? 'var(--income-tint)' : 'var(--surface-2)',
+            display: 'grid', placeItems: 'center', fontSize: 28,
+          }}>
+            {cat.icon}
+          </div>
+          <div className="num" style={{
+            fontWeight: 700, fontSize: 34, letterSpacing: '-0.025em',
+            color: isIncome ? 'var(--income)' : 'var(--expense)',
+          }}>
+            {isIncome ? '+' : '−'}{fmtMoney(t.amount, currency)}
+          </div>
+          <span style={{
+            display: 'inline-block', marginTop: 8, fontSize: 12, fontWeight: 700,
+            letterSpacing: '0.06em', textTransform: 'uppercase',
+            padding: '3px 10px', borderRadius: '999px',
+            background: isIncome ? 'var(--income-tint)' : 'var(--expense-tint)',
+            color: isIncome ? 'var(--income)' : 'var(--expense)',
+          }}>
+            {isIncome ? 'Income' : 'Expense'}
+          </span>
+        </div>
+
+        {/* Details */}
+        <div className="tx-detail-table">
+          <DetailRow label="Category" value={`${cat.icon} ${cat.label}`} />
+          <DetailRow label="Method" value={`${method.icon} ${method.label}`} />
+          <DetailRow label="Date" value={fmtDate(t.date)} />
+          {t.note ? <DetailRow label="Note" value={t.note} /> : null}
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 18 }}>
+          <button className="btn" style={{ justifyContent: 'center' }} onClick={() => { onEdit(t); onClose() }}>
+            <IconEdit width={16} height={16} /> Edit
+          </button>
+          <button className="btn btn-danger" style={{ justifyContent: 'center' }} onClick={() => { onDelete(t); onClose() }}>
+            <IconTrash width={16} height={16} /> Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Row ─────────────────────────────────────────────────────────────────────
+
+function TxRow({ t, currency, onView, onEdit, onDelete }) {
   const cat = CATEGORY_MAP[t.category] || { label: t.category, icon: '•' }
   const method = METHOD_MAP[t.method] || { label: t.method, icon: '•' }
   const isIncome = t.type === 'income'
   return (
     <div className="tx">
-      <div className="tx-ico" style={{ background: isIncome ? 'var(--income-tint)' : 'var(--surface-2)' }}>{cat.icon}</div>
-      <div className="tx-main">
-        <div className="tx-cat">{cat.label}{t.note ? <span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}> · {t.note}</span> : ''}</div>
+      <div
+        className="tx-ico"
+        style={{ background: isIncome ? 'var(--income-tint)' : 'var(--surface-2)', cursor: 'pointer' }}
+        onClick={() => onView(t)}
+      >
+        {cat.icon}
+      </div>
+      <div className="tx-main" style={{ cursor: 'pointer' }} onClick={() => onView(t)}>
+        <div className="tx-cat">
+          {cat.label}
+          {t.note ? <span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}> · {t.note}</span> : ''}
+        </div>
         <div className="tx-sub">
           <span className="tx-method">{method.icon} {method.label}</span>
           <span>{relativeDay(t.date)}</span>
         </div>
       </div>
-      <div className={'tx-amt ' + (isIncome ? 'pos' : 'neg')}>
+      <div className={'tx-amt ' + (isIncome ? 'pos' : 'neg')} style={{ cursor: 'pointer' }} onClick={() => onView(t)}>
         {isIncome ? '+' : '−'}{fmtMoney(t.amount, currency)}
       </div>
       <div className="tx-actions">
@@ -30,11 +114,14 @@ function TxRow({ t, currency, onEdit, onDelete }) {
   )
 }
 
+// ─── List ────────────────────────────────────────────────────────────────────
+
 export default function TransactionList({ transactions, currency, month, onMonthChange, onEdit, onDelete, onAdd }) {
   const [q, setQ] = useState('')
   const [type, setType] = useState('all')
   const [method, setMethod] = useState('all')
   const [category, setCategory] = useState('all')
+  const [viewing, setViewing] = useState(null)
 
   const months = useMemo(() => listMonths(transactions), [transactions])
   const inScope = useMemo(() => filterByMonth(transactions, month), [transactions, month])
@@ -88,24 +175,26 @@ export default function TransactionList({ transactions, currency, month, onMonth
       </div>
 
       <div className="card card-pad">
-        <div className="filters" style={{ marginBottom: 12 }}>
+        <div className="filter-stack" style={{ marginBottom: 12 }}>
           <div className="search">
             <IconSearch />
-            <input className="input" placeholder="Search notes or categories" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input className="input" placeholder="Search notes or categories…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <select className="select" style={{ width: 'auto' }} value={type} onChange={(e) => { setType(e.target.value); setCategory('all') }}>
-            <option value="all">All types</option>
-            <option value="expense">Expense</option>
-            <option value="income">Income</option>
-          </select>
-          <select className="select" style={{ width: 'auto' }} value={method} onChange={(e) => setMethod(e.target.value)}>
-            <option value="all">All methods</option>
-            {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-          <select className="select" style={{ width: 'auto' }} value={category} onChange={(e) => setCategory(e.target.value)}>
-            <option value="all">All categories</option>
-            {catOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
+          <div className="filter-row">
+            <select className="select filter-select" value={type} onChange={(e) => { setType(e.target.value); setCategory('all') }}>
+              <option value="all">All types</option>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+            <select className="select filter-select" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <option value="all">All methods</option>
+              {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <select className="select filter-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+              <option value="all">All categories</option>
+              {catOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
@@ -131,7 +220,7 @@ export default function TransactionList({ transactions, currency, month, onMonth
                   </div>
                   <div className="tx-list">
                     {items.map((t) => (
-                      <TxRow key={t.id} t={t} currency={currency} onEdit={onEdit} onDelete={onDelete} />
+                      <TxRow key={t.id} t={t} currency={currency} onView={setViewing} onEdit={onEdit} onDelete={onDelete} />
                     ))}
                   </div>
                 </div>
@@ -140,6 +229,16 @@ export default function TransactionList({ transactions, currency, month, onMonth
           </div>
         )}
       </div>
+
+      {viewing && (
+        <TransactionDetail
+          t={viewing}
+          currency={currency}
+          onEdit={(t) => { onEdit(t); setViewing(null) }}
+          onDelete={(t) => { onDelete(t); setViewing(null) }}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   )
 }

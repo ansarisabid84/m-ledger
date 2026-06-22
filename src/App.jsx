@@ -9,9 +9,11 @@ import TransactionForm from './components/TransactionForm'
 import Debts from './components/Debts'
 import DebtForm from './components/DebtForm'
 import Settings from './components/Settings'
-import { listMonths } from './lib/stats'
-import { buildSettlement } from './lib/settlements'
+import { listMonths, filterByMonth, totals } from './lib/stats'
+import { buildSettlement, settlementFor, openingBalance } from './lib/settlements'
+import { monthKey, todayISO } from './lib/format'
 import { isNative, nativeSyncReminders } from './lib/native'
+import { isSeedBannerVisible, markDataModified } from './lib/storage'
 import {
   IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconUsers,
 } from './components/icons'
@@ -31,17 +33,36 @@ export default function App() {
   const { settings, update } = useSettings()
 
   const [tab, setTab] = useState('dashboard')
-  const [month, setMonth] = useState('all')
+  const [month, setMonth] = useState(() => monthKey(todayISO()))
   const [txForm, setTxForm] = useState({ open: false, editing: null })
   const [debtForm, setDebtForm] = useState({ open: false, editing: null })
   const [toast, setToast] = useState('')
+  const [showBanner, setShowBanner] = useState(() => isSeedBannerVisible())
 
   useReminders({ settings, transactions: tx.transactions, debts: dbt.debts, currency: settings.currency })
 
-  // Native: (re)schedule local notifications whenever reminder settings change.
   useEffect(() => {
     if (isNative()) nativeSyncReminders(settings)
   }, [settings])
+
+  // Auto carry-forward: settle past months without a settlement
+  useEffect(() => {
+    if (!settings.autoCarryForward || !tx.transactions.length) return
+    const currentMonth = monthKey(todayISO())
+    const unsettled = listMonths(tx.transactions).filter(
+      (m) => m < currentMonth && !settlementFor(m, stl.settlements)
+    )
+    if (!unsettled.length) return
+    const sorted = [...unsettled].sort()
+    let all = [...stl.settlements]
+    for (const m of sorted) {
+      const mt = totals(filterByMonth(tx.transactions, m))
+      const open = openingBalance(m, all)
+      all = [...all.filter((s) => s.month !== m), buildSettlement(m, open, mt.income, mt.expense)]
+    }
+    stl.replaceSettlements(all)
+    notify(`Auto-settled ${sorted.length} past month${sorted.length > 1 ? 's' : ''}`)
+  }, [settings.autoCarryForward, tx.transactions.length, stl.settlements.length]) // eslint-disable-line
 
   const months = useMemo(() => listMonths(tx.transactions), [tx.transactions])
 
@@ -52,30 +73,35 @@ export default function App() {
     return () => clearTimeout(t)
   }, [toast])
 
+  function touched() {
+    if (showBanner) { markDataModified(); setShowBanner(false) }
+  }
+
   // transaction modal
   function openAddTx() { setTxForm({ open: true, editing: null }) }
   function openEditTx(t) { setTxForm({ open: true, editing: t }) }
   function saveTx(data) {
+    touched()
     if (txForm.editing) { tx.updateTransaction(txForm.editing.id, data); notify('Transaction updated') }
     else { tx.addTransaction(data); notify('Transaction added') }
     setTxForm({ open: false, editing: null })
   }
+  function deleteTx(t) { touched(); tx.deleteTransaction(t.id); notify('Transaction deleted') }
 
   // debt modal
   function openAddDebt() { setDebtForm({ open: true, editing: null }) }
   function openEditDebt(d) { setDebtForm({ open: true, editing: d }) }
   function saveDebt(data) {
+    touched()
     if (debtForm.editing) { dbt.updateDebt(debtForm.editing.id, data); notify('Record updated') }
     else { dbt.addDebt(data); notify('Record added') }
     setDebtForm({ open: false, editing: null })
   }
-  function deleteDebt(d) { dbt.deleteDebt(d.id); notify('Record deleted') }
+  function deleteDebt(d) { touched(); dbt.deleteDebt(d.id); notify('Record deleted') }
   function toggleDebt(id) { dbt.toggleSettled(id); notify('Updated') }
 
-  // FAB is context-aware
   function fabAdd() { tab === 'debts' ? openAddDebt() : openAddTx() }
 
-  // settlements
   function settleMonth(m, opening, income, expense) {
     stl.upsertSettlement(buildSettlement(m, opening, income, expense))
     notify('Month settled')
@@ -86,6 +112,8 @@ export default function App() {
     tx.clearAll()
     dbt.replaceDebts([])
     stl.replaceSettlements([])
+    markDataModified()
+    setShowBanner(false)
   }
 
   return (
@@ -121,12 +149,32 @@ export default function App() {
         </div>
       </header>
 
+      {/* Demo data banner */}
+      {showBanner && (
+        <div className="seed-banner">
+          <span className="seed-banner-icon">ℹ️</span>
+          <div className="seed-banner-body">
+            <strong>Demo data</strong> — Sample transactions loaded on first install.
+            Add your own or clear to start fresh.
+          </div>
+          <div className="seed-banner-actions">
+            <button className="btn btn-danger btn-sm" onClick={() => { clearEverything(); markDataModified(); setShowBanner(false); notify('Data cleared') }}>
+              Clear
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowBanner(false)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="shell">
         {tab === 'dashboard' && (
           <Dashboard
             transactions={tx.transactions}
             settlements={stl.settlements}
             currency={settings.currency}
+            monthlyBudget={settings.monthlyBudget || 0}
             month={month}
             onMonthChange={setMonth}
             onAdd={openAddTx}
@@ -141,7 +189,7 @@ export default function App() {
             month={month}
             onMonthChange={setMonth}
             onEdit={openEditTx}
-            onDelete={(t) => { tx.deleteTransaction(t.id); notify('Transaction deleted') }}
+            onDelete={deleteTx}
             onAdd={openAddTx}
           />
         )}

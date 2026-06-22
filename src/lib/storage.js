@@ -105,11 +105,20 @@ export function saveSettlements(list) {
 /* ---------------- settings ---------------- */
 
 const DEFAULT_SETTINGS = {
-  currency: 'INR',
+  currency: 'NPR',
+  monthlyBudget: 0,
+  autoCarryForward: false,
   reminders: {
     dailyLog: { enabled: false, time: '21:00' },
     debts: { enabled: false, time: '10:00' },
   },
+}
+
+const MODIFIED_KEY = 'ledger.modified.v1'
+export function isDataModified() { return safeRead(MODIFIED_KEY, false) }
+export function markDataModified() { safeWrite(MODIFIED_KEY, true) }
+export function isSeedBannerVisible() {
+  return safeRead(SEED_FLAG, false) && !safeRead(MODIFIED_KEY, false)
 }
 
 export function loadSettings() {
@@ -117,6 +126,8 @@ export function loadSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...s,
+    monthlyBudget: s.monthlyBudget ?? DEFAULT_SETTINGS.monthlyBudget,
+    autoCarryForward: s.autoCarryForward ?? DEFAULT_SETTINGS.autoCarryForward,
     reminders: {
       dailyLog: { ...DEFAULT_SETTINGS.reminders.dailyLog, ...(s.reminders?.dailyLog || {}) },
       debts: { ...DEFAULT_SETTINGS.reminders.debts, ...(s.reminders?.debts || {}) },
