@@ -70,6 +70,10 @@
 * { box-sizing: border-box; }
 
 html, body, #root { height: 100%; }
+/* Block horizontal scroll at the root — prevents filter-row or any wide element
+   from making position:fixed bottom nav appear to slide left */
+html { overflow-x: hidden; }
+body { overflow-x: hidden; }
 
 body {
   margin: 0;
@@ -112,7 +116,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   width: 100%;
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 24px 20px 120px;
+  padding: 24px 20px calc(120px + env(safe-area-inset-bottom));
   flex: 1;
 }
 
@@ -123,6 +127,8 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   backdrop-filter: saturate(1.4) blur(12px);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid var(--border);
+  /* Push content below iPhone camera / Dynamic Island */
+  padding-top: env(safe-area-inset-top);
 }
 .topbar-inner {
   max-width: var(--maxw);
@@ -224,7 +230,10 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 .neg { color: var(--expense); }
 
 /* ---------- Section + grid ---------- */
-.section { display: grid; gap: 16px; margin-top: 18px; }
+/* .section { display: grid; gap: 16px; margin-top: 18px; } */
+.section > * {
+    margin-bottom: 5px;
+}
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
 .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
@@ -287,6 +296,16 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   font-family: var(--font-display); font-weight: 700; font-size: 24px; color: var(--ink-faint);
 }
 
+/* Currency conversion preview in forms */
+.convert-preview {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-top: 6px; padding: 7px 10px; border-radius: var(--radius-sm);
+  background: var(--brand-tint); font-size: 13px; font-weight: 600;
+  color: var(--brand-strong);
+}
+:root[data-theme='dark'] .convert-preview { color: var(--brand); }
+.convert-rate { color: var(--ink-faint); font-weight: 400; font-size: 12px; margin-left: auto; }
+
 /* chip selectors (categories / methods) */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
@@ -317,6 +336,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   display: inline-flex; align-items: center; gap: 4px;
   background: var(--surface-2); border-radius: var(--radius-pill);
   padding: 2px 8px; font-weight: 600; color: var(--ink-soft);
+  white-space: nowrap; flex-shrink: 0;
 }
 .tx-amt { font-family: var(--font-display); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15.5px; white-space: nowrap; letter-spacing: -0.01em; }
 .tx-actions { display: flex; gap: 2px; opacity: 0; transition: var(--transition); }
@@ -327,34 +347,47 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 
 /* ---------- Filters ---------- */
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.search { position: relative; flex: 1; min-width: 180px; }
-.search .input { padding-left: 38px; }
+.filter-stack { display: flex; flex-direction: column; gap: 8px; }
+/* 3-column grid — each select gets exactly 1/3 of the card width, no horizontal overflow */
+.filter-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.filter-select { width: 100%; min-width: 0; font-size: 12.5px; padding: 8px 6px; }
+.search { position: relative; }
+.search .input { padding-left: 38px; width: 100%; }
 .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); }
 
 /* ---------- Bottom nav (mobile) ---------- */
 .botnav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
   display: none;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
   backdrop-filter: blur(14px) saturate(1.4);
   border-top: 1px solid var(--border);
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  /* Extra top space for FAB that pops above */
+  padding: 14px 12px calc(10px + env(safe-area-inset-bottom));
 }
-.botnav-inner { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; gap: 2px; position: relative; }
+.botnav-inner {
+  max-width: 560px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  align-items: center; gap: 2px;
+}
 .nav-item {
   border: none; background: transparent; color: var(--ink-faint);
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   padding: 6px 0; font-size: 11px; font-weight: 600; border-radius: 12px;
-  transition: var(--transition);
+  transition: var(--transition); min-width: 0;
 }
 .nav-item.active { color: var(--brand); }
 .fab {
-  width: 52px; height: 52px; border-radius: 50%; border: none;
+  width: 54px; height: 54px; border-radius: 50%; border: none;
   background: var(--brand); color: var(--on-brand);
   display: grid; place-items: center; box-shadow: var(--shadow-lg);
-  margin: -22px auto 0; transition: var(--transition);
+  /* Use transform instead of negative margin — avoids backdrop-filter clipping */
+  transform: translateY(-14px);
+  transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
+  margin: 0 auto; z-index: 1;
 }
-.fab:hover { background: var(--brand-strong); transform: translateY(-2px) scale(1.03); }
+.fab:hover { background: var(--brand-strong); transform: translateY(-16px) scale(1.04); }
+.fab:active { transform: translateY(-12px) scale(0.97); }
 
 /* desktop sidebar nav */
 .sidenav { display: flex; gap: 4px; }
@@ -366,6 +399,24 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 .sidenav .tab:hover { background: var(--surface-2); color: var(--ink); }
 .sidenav .tab.active { background: var(--brand-tint); color: var(--brand-strong); }
 :root[data-theme='dark'] .sidenav .tab.active { color: var(--brand); }
+
+/* ---------- Transaction detail modal ---------- */
+.tx-detail-table {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.tx-detail-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.tx-detail-row:last-child { border-bottom: none; }
+.tx-detail-label { font-size: 13px; color: var(--ink-soft); font-weight: 500; flex: none; }
+.tx-detail-value {
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  text-align: right; word-break: break-word; max-width: 60%;
+}
 
 /* ---------- Modal ---------- */
 .modal-overlay {
@@ -405,11 +456,11 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 
 /* ---------- Toast ---------- */
 .toast {
-  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   background: var(--ink); color: var(--bg);
   padding: 11px 18px; border-radius: var(--radius-pill);
   font-weight: 600; font-size: 14px; z-index: 80; box-shadow: var(--shadow-lg);
-  animation: pop 200ms ease;
+  animation: pop 200ms ease; white-space: nowrap;
 }
 
 /* recharts tooltip card reuse */
@@ -481,6 +532,19 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 .settle-row.total { border-top: 1px dashed var(--border-strong); padding-top: 11px; margin-top: 3px; font-weight: 600; color: var(--ink); }
 .settle-row.total b { font-size: 17px; }
 
+/* ---------- Debt filter tabs ---------- */
+.debt-tabs {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  background: var(--surface-2); border-radius: var(--radius-sm);
+  padding: 4px; border: 1px solid var(--border);
+}
+.debt-tab {
+  border: none; background: transparent; color: var(--ink-soft);
+  padding: 9px 4px; border-radius: 8px; font-weight: 600; font-size: 13px;
+  transition: var(--transition); text-align: center; white-space: nowrap;
+}
+.debt-tab.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-sm); }
+
 /* ---------- Debts ---------- */
 .debt-list { display: flex; flex-direction: column; }
 .debt {
@@ -510,6 +574,40 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 @media (max-width: 520px) {
   .debt { flex-wrap: wrap; }
   .debt-right { width: 100%; flex-direction: row; justify-content: space-between; align-items: center; padding-left: 55px; }
+}
+
+/* ---------- Demo data seed banner ---------- */
+.seed-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--brand-tint) 80%, transparent);
+  border-bottom: 1px solid var(--brand);
+  padding: 10px 20px; font-size: 13.5px;
+}
+.seed-banner-icon { font-size: 16px; flex: none; }
+.seed-banner-body { flex: 1; min-width: 160px; color: var(--ink); }
+.seed-banner-body strong { color: var(--brand-strong); }
+:root[data-theme='dark'] .seed-banner-body strong { color: var(--brand); }
+.seed-banner-actions { display: flex; gap: 8px; flex: none; }
+
+/* ---------- Budget progress bar ---------- */
+.budget-bar-track {
+  height: 10px; border-radius: var(--radius-pill);
+  background: var(--surface-2); overflow: hidden;
+}
+.budget-bar-fill {
+  height: 100%; border-radius: var(--radius-pill);
+  transition: width 600ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* ---------- About section ---------- */
+.about-features { display: flex; flex-direction: column; gap: 12px; }
+.about-feature-row { display: flex; gap: 12px; align-items: flex-start; }
+.about-feature-icon { font-size: 20px; flex: none; width: 32px; text-align: center; margin-top: 1px; }
+
+/* ---------- Reconvert box ---------- */
+.reconvert-box {
+  margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px solid var(--border-strong);
 }
 
 /* ---------- Toggle switch ---------- */

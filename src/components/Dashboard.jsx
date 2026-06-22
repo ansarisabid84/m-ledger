@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { totals, byCategory, byMethod, monthlyTrend, filterByMonth, listMonths } from '../lib/stats'
-import { fmtMoney, monthLabel } from '../lib/format'
+import { fmtMoney, monthLabel, monthKey, todayISO } from '../lib/format'
 import { CATEGORY_MAP, METHOD_MAP } from '../lib/constants'
 import { settlementFor, openingBalance, nextMonthKey } from '../lib/settlements'
 import { CategoryDonut, TrendChart, MethodChart } from './Charts'
@@ -66,7 +66,22 @@ function SettlementCard({ month, opening, t, settlement, currency, onSettle, onU
   )
 }
 
-export default function Dashboard({ transactions, settlements, currency, month, onMonthChange, onAdd, onSettle, onUnsettle }) {
+function spendingStreak(transactions) {
+  if (!transactions.length) return 0
+  const days = new Set(transactions.map((t) => t.date))
+  let streak = 0
+  const today = todayISO()
+  let check = today
+  while (days.has(check)) {
+    streak++
+    const d = new Date(check + 'T12:00:00')
+    d.setDate(d.getDate() - 1)
+    check = d.toISOString().slice(0, 10)
+  }
+  return streak
+}
+
+export default function Dashboard({ transactions, settlements, currency, monthlyBudget, month, onMonthChange, onAdd, onSettle, onUnsettle }) {
   const months = useMemo(() => listMonths(transactions), [transactions])
   const scoped = useMemo(() => filterByMonth(transactions, month), [transactions, month])
 
@@ -82,6 +97,16 @@ export default function Dashboard({ transactions, settlements, currency, month, 
   const heroBalance = isMonth ? opening + t.income - t.expense : t.balance
   const inflowPct = t.income + t.expense > 0 ? (t.income / (t.income + t.expense)) * 100 : 50
   const recent = scoped.slice(0, 5)
+
+  const savingsRate = t.income > 0 ? Math.round(((t.income - t.expense) / t.income) * 100) : null
+  const streak = useMemo(() => spendingStreak(transactions), [transactions])
+
+  // Budget for current month view
+  const currentMonthKey = monthKey(todayISO())
+  const budgetMonth = isMonth ? month : null
+  const showBudget = monthlyBudget > 0 && budgetMonth === currentMonthKey
+  const budgetPct = showBudget ? Math.min((t.expense / monthlyBudget) * 100, 100) : 0
+  const budgetOver = showBudget && t.expense > monthlyBudget
 
   return (
     <div className="section">
@@ -118,7 +143,45 @@ export default function Dashboard({ transactions, settlements, currency, month, 
       <div className="stat-grid">
         <StatTile label="Income" value={fmtMoney(t.income, currency)} tone="var(--income)" tint="var(--income-tint)" icon={<IconUp />} />
         <StatTile label="Expenses" value={fmtMoney(t.expense, currency)} tone="var(--expense)" tint="var(--expense-tint)" icon={<IconDown />} />
+        {savingsRate !== null && (
+          <StatTile
+            label="Savings rate"
+            value={`${savingsRate}%`}
+            tone={savingsRate >= 0 ? 'var(--income)' : 'var(--expense)'}
+            tint={savingsRate >= 0 ? 'var(--income-tint)' : 'var(--expense-tint)'}
+            icon="💰"
+          />
+        )}
+        {streak > 0 && (
+          <StatTile label="Day streak" value={`${streak}d`} tone="var(--ink)" tint="var(--surface-3)" icon="🔥" />
+        )}
       </div>
+
+      {/* Monthly budget bar */}
+      {showBudget && (
+        <div className="card card-pad">
+          <div className="card-head">
+            <span className="card-title">Monthly budget</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: budgetOver ? 'var(--expense)' : 'var(--ink-soft)' }}>
+              {fmtMoney(t.expense, currency)} / {fmtMoney(monthlyBudget, currency)}
+            </span>
+          </div>
+          <div className="budget-bar-track">
+            <div
+              className="budget-bar-fill"
+              style={{
+                width: `${budgetPct}%`,
+                background: budgetOver ? 'var(--expense)' : budgetPct > 80 ? '#e0a93b' : 'var(--income)',
+              }}
+            />
+          </div>
+          <div style={{ marginTop: 6, fontSize: 12.5, color: budgetOver ? 'var(--expense)' : 'var(--ink-faint)', fontWeight: 600 }}>
+            {budgetOver
+              ? `Over budget by ${fmtMoney(t.expense - monthlyBudget, currency)}`
+              : `${fmtMoney(monthlyBudget - t.expense, currency)} remaining (${Math.round(100 - budgetPct)}%)`}
+          </div>
+        </div>
+      )}
 
       {/* Settlement (month view only) */}
       {isMonth && (

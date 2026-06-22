@@ -1,21 +1,24 @@
 import { CURRENCY_MAP } from './constants'
 
-export function fmtMoney(amount, currencyCode = 'INR', opts = {}) {
-  const cur = CURRENCY_MAP[currencyCode] || CURRENCY_MAP.INR
+export function fmtMoney(amount, currencyCode = 'NPR', opts = {}) {
+  const cur = CURRENCY_MAP[currencyCode] || CURRENCY_MAP.NPR
   try {
-    return new Intl.NumberFormat(cur.locale, {
+    const formatted = new Intl.NumberFormat(cur.locale, {
       style: 'currency',
       currency: cur.code,
       maximumFractionDigits: opts.decimals ?? 0,
       minimumFractionDigits: opts.decimals ?? 0,
     }).format(amount)
+    // Replace INR symbol with NPR symbol when currency is NPR
+    if (cur.code === 'NPR') return formatted.replace(/₹|INR\s*/g, `${cur.symbol}`)
+    return formatted
   } catch {
     return `${cur.symbol}${Math.round(amount).toLocaleString()}`
   }
 }
 
-export function fmtCompact(amount, currencyCode = 'INR') {
-  const cur = CURRENCY_MAP[currencyCode] || CURRENCY_MAP.INR
+export function fmtCompact(amount, currencyCode = 'NPR') {
+  const cur = CURRENCY_MAP[currencyCode] || CURRENCY_MAP.NPR
   const abs = Math.abs(amount)
   let v = amount
   let suffix = ''
@@ -26,8 +29,8 @@ export function fmtCompact(amount, currencyCode = 'INR') {
   return `${cur.symbol}${num}${suffix}`
 }
 
-export function currencySymbol(code = 'INR') {
-  return (CURRENCY_MAP[code] || CURRENCY_MAP.INR).symbol
+export function currencySymbol(code = 'NPR') {
+  return (CURRENCY_MAP[code] || CURRENCY_MAP.NPR).symbol
 }
 
 export function todayISO() {
