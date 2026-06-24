@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { categoriesFor, PAYMENT_METHODS, CURRENCIES } from '../lib/constants'
 import { todayISO, currencySymbol } from '../lib/format'
 import { fetchRates, toBase, staticRate, RATE_CURRENCIES } from '../lib/rates'
-import { IconClose } from './icons'
+import { nextDueDate } from '../lib/recurring'
+import { IconClose, IconRepeat } from './icons'
+
+const FREQUENCIES = [
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly' },
+  { id: 'monthly', label: 'Monthly' },
+  { id: 'yearly', label: 'Yearly' },
+]
 
 export default function TransactionForm({ initial, currency, onSave, onClose }) {
   const editing = Boolean(initial)
@@ -15,16 +23,16 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
   const [date, setDate] = useState(initial?.date || todayISO())
   const [note, setNote] = useState(initial?.note || '')
   const [error, setError] = useState('')
+  const [recurringEnabled, setRecurringEnabled] = useState(initial?.recurring?.enabled || false)
+  const [frequency, setFrequency] = useState(initial?.recurring?.frequency || 'monthly')
   const amountRef = useRef(null)
 
   useEffect(() => {
     fetchRates(currency).then(setRates)
   }, [currency])
 
-  // Keep fromCurrency in sync if base currency changes externally
   useEffect(() => { setFromCurrency(currency) }, [currency])
 
-  // keep category valid when switching type
   useEffect(() => {
     const valid = categoriesFor(type).some((c) => c.id === category)
     if (!valid) setCategory(categoriesFor(type)[0].id)
@@ -50,7 +58,10 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
       return
     }
     const finalAmount = needsConversion ? toBase(val, fromCurrency, currency, rates) : val
-    onSave({ type, amount: Math.round(finalAmount * 100) / 100, category, method, date, note })
+    const recurringData = recurringEnabled
+      ? { enabled: true, frequency, nextDate: nextDueDate(frequency, date) }
+      : null
+    onSave({ type, amount: Math.round(finalAmount * 100) / 100, category, method, date, note, recurring: recurringData })
   }
 
   const supportedCurrencies = CURRENCIES.filter((c) => RATE_CURRENCIES.includes(c.code))
@@ -60,20 +71,20 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
       <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Edit transaction' : 'Add transaction'}>
         <div className="modal-grab" />
         <div className="modal-head">
-          <h3 style={{ fontSize: 18 }}>{editing ? 'Edit transaction' : 'Add transaction'}</h3>
+          <h3 style={{ fontSize: 16 }}>{editing ? 'Edit transaction' : 'Add transaction'}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><IconClose /></button>
         </div>
 
-        <div className="field" style={{ marginBottom: 18 }}>
+        <div className="field" style={{ marginBottom: 14 }}>
           <div className="seg seg-type" role="tablist" style={{ width: '100%' }}>
             <button role="tab" className={type === 'expense' ? 'active expense' : ''} style={{ flex: 1 }} onClick={() => setType('expense')}>Expense</button>
             <button role="tab" className={type === 'income' ? 'active income' : ''} style={{ flex: 1 }} onClick={() => setType('income')}>Income</button>
           </div>
         </div>
 
-        <div className="field" style={{ marginBottom: needsConversion ? 8 : 16 }}>
+        <div className="field" style={{ marginBottom: needsConversion ? 6 : 13 }}>
           <label className="label">Amount</label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
             <div className="amount-wrap" style={{ flex: 1 }}>
               <span className="amount-cur">{currencySymbol(fromCurrency)}</span>
               <input
@@ -94,7 +105,7 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
               className="select"
               value={fromCurrency}
               onChange={(e) => setFromCurrency(e.target.value)}
-              style={{ width: 'auto', flexShrink: 0, fontSize: 14, fontWeight: 600 }}
+              style={{ width: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 600 }}
             >
               {supportedCurrencies.map((c) => (
                 <option key={c.code} value={c.code}>{c.code}</option>
@@ -104,15 +115,13 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
           {needsConversion && (
             <div className="convert-preview">
               <span>≈ {currencySymbol(currency)}{Math.round(convertedVal).toLocaleString()} {currency}</span>
-              {displayRate && (
-                <span className="convert-rate">1 {fromCurrency} = {displayRate.toFixed(3)} {currency}</span>
-              )}
+              {displayRate && <span className="convert-rate">1 {fromCurrency} = {displayRate.toFixed(3)} {currency}</span>}
             </div>
           )}
-          {error && <span style={{ color: 'var(--expense)', fontSize: 13 }}>{error}</span>}
+          {error && <span style={{ color: 'var(--expense)', fontSize: 11 }}>{error}</span>}
         </div>
 
-        <div className="field" style={{ marginBottom: 16 }}>
+        <div className="field" style={{ marginBottom: 13 }}>
           <label className="label">Category</label>
           <div className="chips">
             {categoriesFor(type).map((c) => (
@@ -123,7 +132,7 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
           </div>
         </div>
 
-        <div className="field" style={{ marginBottom: 16 }}>
+        <div className="field" style={{ marginBottom: 13 }}>
           <label className="label">Payment method</label>
           <div className="chips">
             {PAYMENT_METHODS.map((m) => (
@@ -134,7 +143,7 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 13 }}>
           <div className="field">
             <label className="label">Date</label>
             <input className="input" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
@@ -143,6 +152,44 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
             <label className="label">Note <span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}>(optional)</span></label>
             <input className="input" type="text" placeholder="e.g. Lunch" value={note} onChange={(e) => setNote(e.target.value)} maxLength={80} />
           </div>
+        </div>
+
+        {/* Recurring */}
+        <div className="field" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 11px', background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <IconRepeat width={14} height={14} style={{ color: 'var(--ink-soft)' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Recurring transaction</span>
+            </div>
+            <button
+              className={'switch' + (recurringEnabled ? ' on' : '')}
+              role="switch"
+              aria-checked={recurringEnabled}
+              onClick={() => setRecurringEnabled((v) => !v)}
+            >
+              <span className="switch-knob" />
+            </button>
+          </div>
+          {recurringEnabled && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+              {FREQUENCIES.map((f) => (
+                <button
+                  key={f.id}
+                  className={'chip' + (frequency === f.id ? ' active' : '')}
+                  onClick={() => setFrequency(f.id)}
+                  type="button"
+                  style={{ fontSize: 11 }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {recurringEnabled && (
+            <p style={{ margin: '5px 0 0', fontSize: 10.5, color: 'var(--ink-faint)' }}>
+              Next entry will auto-appear on {nextDueDate(frequency, date)}.
+            </p>
+          )}
         </div>
 
         <button className="btn btn-primary btn-block" onClick={submit}>

@@ -1,7 +1,7 @@
 {
   "name": "ledger-finance-tracker",
   "private": true,
-  "version": "1.0.0",
+  "version": "5.0.0",
   "type": "module",
   "description": "Ledger — a daily personal finance tracker, on web and as native Android/iOS apps via Capacitor.",
   "scripts": {
