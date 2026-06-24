@@ -3,24 +3,30 @@ import { useTransactions } from './hooks/useTransactions'
 import { useDebts, useSettlements } from './hooks/useDebts'
 import { useTheme, useSettings } from './hooks/useTheme'
 import { useReminders } from './hooks/useReminders'
+import { useGoals } from './hooks/useGoals'
+import { usePending } from './hooks/usePending'
 import Dashboard from './components/Dashboard'
 import TransactionList from './components/TransactionList'
 import TransactionForm from './components/TransactionForm'
 import Debts from './components/Debts'
 import DebtForm from './components/DebtForm'
+import Goals from './components/Goals'
 import Settings from './components/Settings'
+import PendingInbox from './components/PendingInbox'
 import { listMonths, filterByMonth, totals } from './lib/stats'
 import { buildSettlement, settlementFor, openingBalance } from './lib/settlements'
 import { monthKey, todayISO } from './lib/format'
 import { isNative, nativeSyncReminders } from './lib/native'
-import { isSeedBannerVisible, markDataModified } from './lib/storage'
+import { isSeedBannerVisible, markDataModified, makeTransaction } from './lib/storage'
+import { processDueRecurring } from './lib/recurring'
 import {
-  IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconUsers,
+  IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconUsers, IconTarget,
 } from './components/icons'
 
 const TABS = [
   { id: 'dashboard', label: 'Home', icon: IconHome },
   { id: 'transactions', label: 'History', icon: IconList },
+  { id: 'goals', label: 'Goals', icon: IconTarget },
   { id: 'debts', label: 'Debts', icon: IconUsers },
   { id: 'settings', label: 'Settings', icon: IconSettings },
 ]
@@ -31,6 +37,8 @@ export default function App() {
   const stl = useSettlements()
   const { theme, toggle } = useTheme()
   const { settings, update } = useSettings()
+  const goals = useGoals()
+  const pending = usePending()
 
   const [tab, setTab] = useState('dashboard')
   const [month, setMonth] = useState(() => monthKey(todayISO()))
@@ -45,7 +53,7 @@ export default function App() {
     if (isNative()) nativeSyncReminders(settings)
   }, [settings])
 
-  // Auto carry-forward: settle past months without a settlement
+  // Auto carry-forward
   useEffect(() => {
     if (!settings.autoCarryForward || !tx.transactions.length) return
     const currentMonth = monthKey(todayISO())
@@ -64,6 +72,36 @@ export default function App() {
     notify(`Auto-settled ${sorted.length} past month${sorted.length > 1 ? 's' : ''}`)
   }, [settings.autoCarryForward, tx.transactions.length, stl.settlements.length]) // eslint-disable-line
 
+  // Process due recurring transactions on startup
+  useEffect(() => {
+    if (!tx.transactions.length) return
+    const { toAdd, updatedSource } = processDueRecurring(tx.transactions)
+    if (!toAdd.length && !updatedSource.length) return
+
+    let updated = [...tx.transactions]
+
+    // Update nextDate on source recurring transactions
+    if (updatedSource.length) {
+      updated = updated.map((t) => {
+        const u = updatedSource.find((s) => s.id === t.id)
+        return u ? { ...t, recurring: { ...t.recurring, nextDate: u.nextDate } } : t
+      })
+    }
+
+    // Add due transactions (skip duplicates by _fromRecurring + date)
+    const existingKeys = new Set(updated.map((t) => `${t._fromRecurring || ''}:${t.date}`))
+    const newOnes = toAdd
+      .filter((d) => !existingKeys.has(`${d._fromRecurring}:${d.date}`))
+      .map((d) => makeTransaction(d))
+
+    if (newOnes.length) {
+      tx.replaceAll([...newOnes, ...updated])
+      notify(`${newOnes.length} recurring transaction${newOnes.length > 1 ? 's' : ''} added`)
+    } else if (updatedSource.length) {
+      tx.replaceAll(updated)
+    }
+  }, []) // eslint-disable-line — intentionally runs once on mount
+
   const months = useMemo(() => listMonths(tx.transactions), [tx.transactions])
 
   function notify(msg) { setToast(msg) }
@@ -77,18 +115,18 @@ export default function App() {
     if (showBanner) { markDataModified(); setShowBanner(false) }
   }
 
-  // transaction modal
-  function openAddTx() { setTxForm({ open: true, editing: null }) }
-  function openEditTx(t) { setTxForm({ open: true, editing: t }) }
+  // Transaction modal
+  function openAddTx(prefill) { setTxForm({ open: true, editing: null, prefill: prefill || null }) }
+  function openEditTx(t) { setTxForm({ open: true, editing: t, prefill: null }) }
   function saveTx(data) {
     touched()
     if (txForm.editing) { tx.updateTransaction(txForm.editing.id, data); notify('Transaction updated') }
     else { tx.addTransaction(data); notify('Transaction added') }
-    setTxForm({ open: false, editing: null })
+    setTxForm({ open: false, editing: null, prefill: null })
   }
   function deleteTx(t) { touched(); tx.deleteTransaction(t.id); notify('Transaction deleted') }
 
-  // debt modal
+  // Debt modal
   function openAddDebt() { setDebtForm({ open: true, editing: null }) }
   function openEditDebt(d) { setDebtForm({ open: true, editing: d }) }
   function saveDebt(data) {
@@ -100,7 +138,10 @@ export default function App() {
   function deleteDebt(d) { touched(); dbt.deleteDebt(d.id); notify('Record deleted') }
   function toggleDebt(id) { dbt.toggleSettled(id); notify('Updated') }
 
-  function fabAdd() { tab === 'debts' ? openAddDebt() : openAddTx() }
+  function fabAdd() {
+    if (tab === 'debts') openAddDebt()
+    else openAddTx()
+  }
 
   function settleMonth(m, opening, income, expense) {
     stl.upsertSettlement(buildSettlement(m, opening, income, expense))
@@ -116,12 +157,30 @@ export default function App() {
     setShowBanner(false)
   }
 
+  // Pending SMS inbox handlers
+  function handlePendingApprove(item, addToPending) {
+    if (addToPending) {
+      pending.addPending(item)
+    } else {
+      // Open TransactionForm pre-filled with detected data
+      openAddTx({
+        type: item.type,
+        amount: String(item.amount),
+        category: item.category,
+        method: item.method,
+        note: item.note,
+        date: item.date || todayISO(),
+      })
+      pending.removePending(item.id)
+    }
+  }
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand-mark" aria-hidden="true">
-            <IconChart width={20} height={20} style={{ color: '#fff' }} />
+            <IconChart width={17} height={17} style={{ color: '#fff' }} />
           </div>
           <div>
             <div className="brand-name">Ledger</div>
@@ -134,16 +193,16 @@ export default function App() {
               const Icon = t.icon
               return (
                 <button key={t.id} className={'tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
-                  <Icon width={17} height={17} /> {t.label}
+                  <Icon width={15} height={15} /> {t.label}
                 </button>
               )
             })}
           </nav>
 
-          <button className="btn btn-primary btn-sm desktop-add" onClick={fabAdd} style={{ marginLeft: 8 }}>
-            <IconPlus width={16} height={16} /> Add
+          <button className="btn btn-primary btn-sm desktop-add" onClick={fabAdd} style={{ marginLeft: 6 }}>
+            <IconPlus width={13} height={13} /> Add
           </button>
-          <button className="icon-btn" onClick={toggle} aria-label="Toggle theme" style={{ marginLeft: 8 }}>
+          <button className="icon-btn" onClick={toggle} aria-label="Toggle theme" style={{ marginLeft: 6 }}>
             {theme === 'dark' ? <IconSun /> : <IconMoon />}
           </button>
         </div>
@@ -154,16 +213,13 @@ export default function App() {
         <div className="seed-banner">
           <span className="seed-banner-icon">ℹ️</span>
           <div className="seed-banner-body">
-            <strong>Demo data</strong> — Sample transactions loaded on first install.
-            Add your own or clear to start fresh.
+            <strong>Demo data</strong> — Sample transactions loaded on first install. Add your own or clear to start fresh.
           </div>
           <div className="seed-banner-actions">
             <button className="btn btn-danger btn-sm" onClick={() => { clearEverything(); markDataModified(); setShowBanner(false); notify('Data cleared') }}>
               Clear
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowBanner(false)}>
-              Dismiss
-            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowBanner(false)}>Dismiss</button>
           </div>
         </div>
       )}
@@ -175,6 +231,7 @@ export default function App() {
             settlements={stl.settlements}
             currency={settings.currency}
             monthlyBudget={settings.monthlyBudget || 0}
+            categoryBudgets={settings.categoryBudgets || {}}
             month={month}
             onMonthChange={setMonth}
             onAdd={openAddTx}
@@ -191,6 +248,16 @@ export default function App() {
             onEdit={openEditTx}
             onDelete={deleteTx}
             onAdd={openAddTx}
+          />
+        )}
+        {tab === 'goals' && (
+          <Goals
+            goals={goals.goals}
+            currency={settings.currency}
+            onAdd={goals.addGoal}
+            onUpdate={goals.updateGoal}
+            onContribute={goals.contributeToGoal}
+            onDelete={goals.deleteGoal}
           />
         )}
         {tab === 'debts' && (
@@ -220,23 +287,35 @@ export default function App() {
         )}
       </main>
 
-      {/* Mobile bottom navigation */}
+      {/* SMS Pending Inbox (floating badge + modal) */}
+      <PendingInbox
+        pending={pending.pending}
+        currency={settings.currency}
+        smsDetection={settings.smsDetection}
+        onApprove={handlePendingApprove}
+        onReject={pending.removePending}
+        onClear={pending.clearPending}
+        onOpenForm={(item) => openAddTx(item)}
+      />
+
+      {/* Mobile bottom navigation (6 items including FAB) */}
       <nav className="botnav" aria-label="Primary mobile">
         <div className="botnav-inner">
-          <button className={'nav-item' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}><IconHome /> Home</button>
-          <button className={'nav-item' + (tab === 'transactions' ? ' active' : '')} onClick={() => setTab('transactions')}><IconList /> History</button>
-          <button className="fab" onClick={fabAdd} aria-label="Add"><IconPlus width={24} height={24} /></button>
-          <button className={'nav-item' + (tab === 'debts' ? ' active' : '')} onClick={() => setTab('debts')}><IconUsers /> Debts</button>
-          <button className={'nav-item' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}><IconSettings /> Settings</button>
+          <button className={'nav-item' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}><IconHome width={18} height={18} />Home</button>
+          <button className={'nav-item' + (tab === 'transactions' ? ' active' : '')} onClick={() => setTab('transactions')}><IconList width={18} height={18} />History</button>
+          <button className="fab" onClick={fabAdd} aria-label="Add"><IconPlus width={22} height={22} /></button>
+          <button className={'nav-item' + (tab === 'goals' ? ' active' : '')} onClick={() => setTab('goals')}><IconTarget width={18} height={18} />Goals</button>
+          <button className={'nav-item' + (tab === 'debts' ? ' active' : '')} onClick={() => setTab('debts')}><IconUsers width={18} height={18} />Debts</button>
+          <button className={'nav-item' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}><IconSettings width={18} height={18} />More</button>
         </div>
       </nav>
 
       {txForm.open && (
         <TransactionForm
-          initial={txForm.editing}
+          initial={txForm.editing || txForm.prefill}
           currency={settings.currency}
           onSave={saveTx}
-          onClose={() => setTxForm({ open: false, editing: null })}
+          onClose={() => setTxForm({ open: false, editing: null, prefill: null })}
         />
       )}
       {debtForm.open && (

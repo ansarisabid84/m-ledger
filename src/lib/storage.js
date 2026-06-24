@@ -7,6 +7,8 @@ const DEBT_KEY = 'ledger.debts.v1'
 const SETTLE_KEY = 'ledger.settlements.v1'
 const SETTINGS_KEY = 'ledger.settings.v1'
 const SEED_FLAG = 'ledger.seeded.v1'
+const GOALS_KEY = 'ledger.goals.v1'
+const PENDING_KEY = 'ledger.pending.v1'
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -56,6 +58,9 @@ export function makeTransaction(data) {
     method: data.method,
     date: data.date,
     note: (data.note || '').trim(),
+    recurring: data.recurring
+      ? { enabled: true, frequency: data.recurring.frequency || 'monthly', nextDate: data.recurring.nextDate || null }
+      : null,
     createdAt: Date.now(),
   }
 }
@@ -108,9 +113,12 @@ const DEFAULT_SETTINGS = {
   currency: 'NPR',
   monthlyBudget: 0,
   autoCarryForward: false,
+  smsDetection: false,
+  categoryBudgets: {},
   reminders: {
     dailyLog: { enabled: false, time: '21:00' },
     debts: { enabled: false, time: '10:00' },
+    custom: [],
   },
 }
 
@@ -128,9 +136,12 @@ export function loadSettings() {
     ...s,
     monthlyBudget: s.monthlyBudget ?? DEFAULT_SETTINGS.monthlyBudget,
     autoCarryForward: s.autoCarryForward ?? DEFAULT_SETTINGS.autoCarryForward,
+    smsDetection: s.smsDetection ?? false,
+    categoryBudgets: s.categoryBudgets ?? {},
     reminders: {
       dailyLog: { ...DEFAULT_SETTINGS.reminders.dailyLog, ...(s.reminders?.dailyLog || {}) },
       debts: { ...DEFAULT_SETTINGS.reminders.debts, ...(s.reminders?.debts || {}) },
+      custom: Array.isArray(s.reminders?.custom) ? s.reminders.custom : [],
     },
   }
 }
@@ -223,6 +234,52 @@ export function parseImport(text) {
     : null
 
   return { transactions, debts, settlements }
+}
+
+/* ---------------- savings goals ---------------- */
+
+export function loadGoals() {
+  return safeRead(GOALS_KEY, [])
+}
+
+export function saveGoals(list) {
+  safeWrite(GOALS_KEY, list)
+}
+
+export function makeGoal(data) {
+  return {
+    id: uid(),
+    name: data.name.trim(),
+    targetAmount: Number(data.targetAmount),
+    savedAmount: Number(data.savedAmount || 0),
+    icon: data.icon || '🎯',
+    color: data.color || '#5b6cf0',
+    deadline: data.deadline || null,
+    createdAt: Date.now(),
+  }
+}
+
+/* ---------------- pending (SMS-detected) transactions ---------------- */
+
+export function loadPending() {
+  return safeRead(PENDING_KEY, [])
+}
+
+export function savePending(list) {
+  safeWrite(PENDING_KEY, list)
+}
+
+export function makePending(data) {
+  return {
+    id: uid(),
+    type: data.type || 'expense',
+    amount: Number(data.amount),
+    category: data.category || (data.type === 'income' ? 'other_income' : 'other_expense'),
+    method: data.method || 'upi',
+    note: (data.note || '').trim(),
+    rawSms: data.rawSms || '',
+    detectedAt: Date.now(),
+  }
 }
 
 /* ---------------- demo seed ---------------- */
