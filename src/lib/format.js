@@ -6,14 +6,14 @@ export function fmtMoney(amount, currencyCode = 'NPR', opts = {}) {
     const formatted = new Intl.NumberFormat(cur.locale, {
       style: 'currency',
       currency: cur.code,
-      maximumFractionDigits: opts.decimals ?? 0,
-      minimumFractionDigits: opts.decimals ?? 0,
+      maximumFractionDigits: opts.decimals ?? 2,
+      minimumFractionDigits: opts.decimals ?? 2,
     }).format(amount)
     // Replace INR symbol with NPR symbol when currency is NPR
     if (cur.code === 'NPR') return formatted.replace(/₹|INR\s*/g, `${cur.symbol}`)
     return formatted
   } catch {
-    return `${cur.symbol}${Math.round(amount).toLocaleString()}`
+    return `${cur.symbol}${amount.toFixed(2)}`
   }
 }
 
