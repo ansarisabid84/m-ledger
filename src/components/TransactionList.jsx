@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { CATEGORY_MAP, METHOD_MAP, PAYMENT_METHODS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../lib/constants'
-import { fmtMoney, fmtDate, relativeDay, monthLabel } from '../lib/format'
+import { fmtMoney, maskMoney, AMOUNT_MASK, fmtDate, relativeDay, monthLabel } from '../lib/format'
 import { filterByMonth, listMonths, totals } from '../lib/stats'
 import MonthNav from './MonthNav'
 import { IconSearch, IconEdit, IconTrash, IconList, IconClose } from './icons'
@@ -16,7 +16,7 @@ function DetailRow({ label, value }) {
   )
 }
 
-function TransactionDetail({ t, currency, onEdit, onDelete, onClose }) {
+function TransactionDetail({ t, currency, onEdit, onDelete, onClose, hideAmounts }) {
   const cat = CATEGORY_MAP[t.category] || { label: t.category, icon: '•' }
   const method = METHOD_MAP[t.method] || { label: t.method, icon: '•' }
   const isIncome = t.type === 'income'
@@ -43,7 +43,7 @@ function TransactionDetail({ t, currency, onEdit, onDelete, onClose }) {
             fontWeight: 700, fontSize: 34, letterSpacing: '-0.025em',
             color: isIncome ? 'var(--income)' : 'var(--expense)',
           }}>
-            {isIncome ? '+' : '−'}{fmtMoney(t.amount, currency)}
+            {hideAmounts ? AMOUNT_MASK : (isIncome ? '+' : '−') + fmtMoney(t.amount, currency)}
           </div>
           <span style={{
             display: 'inline-block', marginTop: 8, fontSize: 12, fontWeight: 700,
@@ -80,7 +80,7 @@ function TransactionDetail({ t, currency, onEdit, onDelete, onClose }) {
 
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
-function TxRow({ t, currency, onView, onEdit, onDelete }) {
+function TxRow({ t, currency, onView, onEdit, onDelete, hideAmounts }) {
   const cat = CATEGORY_MAP[t.category] || { label: t.category, icon: '•' }
   const method = METHOD_MAP[t.method] || { label: t.method, icon: '•' }
   const isIncome = t.type === 'income'
@@ -104,7 +104,7 @@ function TxRow({ t, currency, onView, onEdit, onDelete }) {
         </div>
       </div>
       <div className={'tx-amt ' + (isIncome ? 'pos' : 'neg')} style={{ cursor: 'pointer' }} onClick={() => onView(t)}>
-        {isIncome ? '+' : '−'}{fmtMoney(t.amount, currency)}
+        {hideAmounts ? AMOUNT_MASK : (isIncome ? '+' : '−') + fmtMoney(t.amount, currency)}
       </div>
       <div className="tx-actions">
         <button className="tx-act" onClick={() => onEdit(t)} aria-label="Edit"><IconEdit /></button>
@@ -116,7 +116,7 @@ function TxRow({ t, currency, onView, onEdit, onDelete }) {
 
 // ─── List ────────────────────────────────────────────────────────────────────
 
-export default function TransactionList({ transactions, currency, month, onMonthChange, onEdit, onDelete, onAdd }) {
+export default function TransactionList({ transactions, currency, month, onMonthChange, onEdit, onDelete, onAdd, hideAmounts }) {
   const [q, setQ] = useState('')
   const [type, setType] = useState('all')
   const [method, setMethod] = useState('all')
@@ -166,11 +166,11 @@ export default function TransactionList({ transactions, currency, month, onMonth
       <div className="stat-grid">
         <div className="stat">
           <div className="stat-top">Income</div>
-          <div className="stat-val num pos">{fmtMoney(scopeTotals.income, currency)}</div>
+          <div className="stat-val num pos">{maskMoney(scopeTotals.income, currency, hideAmounts)}</div>
         </div>
         <div className="stat">
           <div className="stat-top">Expenses</div>
-          <div className="stat-val num neg">{fmtMoney(scopeTotals.expense, currency)}</div>
+          <div className="stat-val num neg">{maskMoney(scopeTotals.expense, currency, hideAmounts)}</div>
         </div>
       </div>
 
@@ -215,12 +215,12 @@ export default function TransactionList({ transactions, currency, month, onMonth
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '14px 4px 4px', borderBottom: '1px solid var(--border)' }}>
                     <span className="eyebrow">{relativeDay(date)}</span>
                     <span className="num" style={{ fontSize: 12.5, fontWeight: 600, color: dayTotal >= 0 ? 'var(--income)' : 'var(--ink-soft)' }}>
-                      {dayTotal >= 0 ? '+' : '−'}{fmtMoney(Math.abs(dayTotal), currency)}
+                      {hideAmounts ? AMOUNT_MASK : (dayTotal >= 0 ? '+' : '−') + fmtMoney(Math.abs(dayTotal), currency)}
                     </span>
                   </div>
                   <div className="tx-list">
                     {items.map((t) => (
-                      <TxRow key={t.id} t={t} currency={currency} onView={setViewing} onEdit={onEdit} onDelete={onDelete} />
+                      <TxRow key={t.id} t={t} currency={currency} onView={setViewing} onEdit={onEdit} onDelete={onDelete} hideAmounts={hideAmounts} />
                     ))}
                   </div>
                 </div>
@@ -237,6 +237,7 @@ export default function TransactionList({ transactions, currency, month, onMonth
           onEdit={(t) => { onEdit(t); setViewing(null) }}
           onDelete={(t) => { onDelete(t); setViewing(null) }}
           onClose={() => setViewing(null)}
+          hideAmounts={hideAmounts}
         />
       )}
     </div>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { fmtMoney, todayISO } from '../lib/format'
 import { CATEGORY_MAP, METHOD_MAP } from '../lib/constants'
 import { parseSms } from '../lib/smsParser'
+import { isNative } from '../lib/native'
 import { IconClose, IconCheck, IconTrash, IconInbox, IconEdit } from './icons'
 
 function PendingRow({ item, currency, onApprove, onReject }) {
@@ -54,6 +55,24 @@ export default function PendingInbox({ pending, currency, onApprove, onReject, o
   const [open, setOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [parseError, setParseError] = useState('')
+  const [clipboardLoading, setClipboardLoading] = useState(false)
+
+  async function readFromClipboard() {
+    setClipboardLoading(true)
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text?.trim()) {
+        setPasteText(text.trim())
+        setParseError('')
+      } else {
+        setParseError('Clipboard is empty.')
+      }
+    } catch {
+      setParseError('Could not read clipboard. Copy the SMS first, then try again.')
+    } finally {
+      setClipboardLoading(false)
+    }
+  }
 
   function handleParse() {
     const text = pasteText.trim()
@@ -108,19 +127,36 @@ export default function PendingInbox({ pending, currency, onApprove, onReject, o
 
             {/* Paste SMS */}
             <div style={{ marginBottom: 14 }}>
-              <label className="label" style={{ marginBottom: 5, display: 'block' }}>Paste a bank SMS to detect a transaction</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <label className="label">Bank SMS text</label>
+                {(isNative() || navigator.clipboard) && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 10, padding: '3px 7px' }}
+                    onClick={readFromClipboard}
+                    disabled={clipboardLoading}
+                  >
+                    {clipboardLoading ? 'Reading…' : '📋 Paste from clipboard'}
+                  </button>
+                )}
+              </div>
               <textarea
                 className="input textarea"
                 rows={3}
-                placeholder="Paste your bank's transaction SMS here…"
+                placeholder="Paste your bank's transaction SMS here, or use the clipboard button above…"
                 value={pasteText}
                 onChange={(e) => { setPasteText(e.target.value); setParseError('') }}
-                style={{ resize: 'vertical', fontSize: 11.5, lineHeight: 1.4 }}
+                style={{ resize: 'vertical', fontSize: 16, lineHeight: 1.4 }}
               />
               {parseError && <p style={{ color: 'var(--expense)', fontSize: 11, margin: '4px 0 0' }}>{parseError}</p>}
-              <button className="btn btn-primary btn-sm" style={{ marginTop: 7 }} onClick={handleParse} disabled={!pasteText.trim()}>
-                Detect transaction
-              </button>
+              <div style={{ display: 'flex', gap: 7, marginTop: 7, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button className="btn btn-primary btn-sm" onClick={handleParse} disabled={!pasteText.trim()}>
+                  Detect transaction
+                </button>
+                <span style={{ fontSize: 10.5, color: 'var(--ink-faint)' }}>
+                  {isNative() ? 'Copy the SMS in Messages, then tap "Paste from clipboard".' : 'Copy a bank SMS and paste it above.'}
+                </span>
+              </div>
             </div>
 
             {/* Pending list */}

@@ -9,6 +9,7 @@ export function isNative() {
 const DAILY_ID = 1001
 const DEBT_ID = 1002
 const TEST_ID = 999
+const CUSTOM_ID_BASE = 2000 // custom reminder IDs start at 2000
 
 function hm(t) {
   const [h, m] = (t || '0:0').split(':').map(Number)
@@ -39,14 +40,19 @@ export async function nativeCheckPermission() {
   }
 }
 
-// Cancel our reminders and (re)schedule them as daily-repeating local notifications.
+// Cancel and re-schedule all reminders (daily, debt, and custom) as local notifications.
 export async function nativeSyncReminders(settings) {
   if (!isNative()) return
   try {
     const { LocalNotifications } = await import('@capacitor/local-notifications')
-    await LocalNotifications.cancel({ notifications: [{ id: DAILY_ID }, { id: DEBT_ID }] }).catch(() => {})
+
+    // Cancel all previously scheduled reminders (fixed + up to 20 custom slots)
+    const toCancel = [{ id: DAILY_ID }, { id: DEBT_ID }]
+    for (let i = 0; i < 20; i++) toCancel.push({ id: CUSTOM_ID_BASE + i })
+    await LocalNotifications.cancel({ notifications: toCancel }).catch(() => {})
 
     const list = []
+
     const daily = settings?.reminders?.dailyLog
     if (daily?.enabled) {
       const { hour, minute } = hm(daily.time)
@@ -57,6 +63,7 @@ export async function nativeSyncReminders(settings) {
         schedule: { on: { hour, minute }, allowWhileIdle: true },
       })
     }
+
     const debt = settings?.reminders?.debts
     if (debt?.enabled) {
       const { hour, minute } = hm(debt.time)
@@ -67,6 +74,19 @@ export async function nativeSyncReminders(settings) {
         schedule: { on: { hour, minute }, allowWhileIdle: true },
       })
     }
+
+    const custom = settings?.reminders?.custom || []
+    custom.forEach((r, idx) => {
+      if (!r.enabled || !r.label) return
+      const { hour, minute } = hm(r.time)
+      list.push({
+        id: CUSTOM_ID_BASE + idx,
+        title: r.label,
+        body: 'Reminder from Ledger.',
+        schedule: { on: { hour, minute }, allowWhileIdle: true },
+      })
+    })
+
     if (list.length) await LocalNotifications.schedule({ notifications: list })
   } catch {
     /* noop */

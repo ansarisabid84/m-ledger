@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTransactions } from './hooks/useTransactions'
 import { useDebts, useSettlements } from './hooks/useDebts'
 import { useTheme, useSettings } from './hooks/useTheme'
@@ -13,14 +13,18 @@ import DebtForm from './components/DebtForm'
 import Goals from './components/Goals'
 import Settings from './components/Settings'
 import PendingInbox from './components/PendingInbox'
+import AppLock from './components/AppLock'
+import PinGate from './components/PinGate'
+import { BiometricAuth } from '@aparajita/capacitor-biometric-auth'
 import { listMonths, filterByMonth, totals } from './lib/stats'
 import { buildSettlement, settlementFor, openingBalance } from './lib/settlements'
 import { monthKey, todayISO } from './lib/format'
+import { resolveClock } from './lib/calendar'
 import { isNative, nativeSyncReminders } from './lib/native'
 import { isSeedBannerVisible, markDataModified, makeTransaction } from './lib/storage'
 import { processDueRecurring } from './lib/recurring'
 import {
-  IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconUsers, IconTarget,
+  IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconSystem, IconUsers, IconTarget, IconEye, IconEyeOff,
 } from './components/icons'
 
 const TABS = [
@@ -35,7 +39,7 @@ export default function App() {
   const tx = useTransactions()
   const dbt = useDebts()
   const stl = useSettlements()
-  const { theme, toggle } = useTheme()
+  const { theme, mode, cycle } = useTheme()
   const { settings, update } = useSettings()
   const goals = useGoals()
   const pending = usePending()
@@ -46,12 +50,40 @@ export default function App() {
   const [debtForm, setDebtForm] = useState({ open: false, editing: null })
   const [toast, setToast] = useState('')
   const [showBanner, setShowBanner] = useState(() => isSeedBannerVisible())
+  const [hideAmounts, setHideAmounts] = useState(() => settings.hideAmounts ?? false)
+  const [showRevealPinGate, setShowRevealPinGate] = useState(false)
+  const [locked, setLocked] = useState(() => {
+    const al = settings.appLock
+    if (!al?.enabled) return false
+    if (al.lockType === 'pin') return !!al.pin
+    return true // device lock always starts locked
+  })
+  const hiddenAtRef = useRef(null)
 
   useReminders({ settings, transactions: tx.transactions, debts: dbt.debts, currency: settings.currency })
 
   useEffect(() => {
     if (isNative()) nativeSyncReminders(settings)
   }, [settings])
+
+  // Re-lock after app is hidden for >60 seconds
+  useEffect(() => {
+    function onVisChange() {
+      const lock = settings.appLock
+      if (!lock?.enabled) return
+      if (lock.lockType === 'pin' && !lock.pin) return
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now()
+      } else {
+        if (hiddenAtRef.current && Date.now() - hiddenAtRef.current > 60_000) {
+          setLocked(true)
+        }
+        hiddenAtRef.current = null
+      }
+    }
+    document.addEventListener('visibilitychange', onVisChange)
+    return () => document.removeEventListener('visibilitychange', onVisChange)
+  }, [settings.appLock])
 
   // Auto carry-forward
   useEffect(() => {
@@ -103,6 +135,42 @@ export default function App() {
   }, []) // eslint-disable-line — intentionally runs once on mount
 
   const months = useMemo(() => listMonths(tx.transactions), [tx.transactions])
+
+  function doReveal() {
+    setHideAmounts(false)
+    update({ hideAmounts: false })
+  }
+
+  async function toggleHideAmounts() {
+    if (!hideAmounts) {
+      // Hiding — no auth needed
+      setHideAmounts(true)
+      update({ hideAmounts: true })
+      return
+    }
+    // Revealing — require auth if app lock is enabled
+    const lock = settings.appLock
+    if (!lock?.enabled) { doReveal(); return }
+    if (lock.lockType === 'pin' && lock.pin) {
+      setShowRevealPinGate(true)
+      return
+    }
+    // Device lock
+    if (!isNative()) { doReveal(); return }
+    try {
+      await BiometricAuth.authenticate({
+        reason: 'Authenticate to show amounts',
+        cancelTitle: 'Cancel',
+        allowDeviceCredential: true,
+        iosFallbackTitle: 'Use Passcode',
+        androidTitle: 'Show Amounts',
+        androidSubtitle: 'Confirm your identity to reveal amounts',
+      })
+      doReveal()
+    } catch {
+      // User cancelled or auth failed — stay hidden
+    }
+  }
 
   function notify(msg) { setToast(msg) }
   useEffect(() => {
@@ -175,8 +243,22 @@ export default function App() {
     }
   }
 
+  const clock = resolveClock(settings)
+
   return (
     <div className="app">
+      {locked && settings.appLock?.enabled && (
+        <AppLock appLock={settings.appLock} onUnlock={() => setLocked(false)} />
+      )}
+      {showRevealPinGate && (
+        <PinGate
+          storedPin={settings.appLock?.pin}
+          title="Reveal amounts"
+          subtitle="Enter your PIN to show all amounts"
+          onSuccess={() => { setShowRevealPinGate(false); doReveal() }}
+          onCancel={() => setShowRevealPinGate(false)}
+        />
+      )}
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand-mark" aria-hidden="true">
@@ -202,8 +284,27 @@ export default function App() {
           <button className="btn btn-primary btn-sm desktop-add" onClick={fabAdd} style={{ marginLeft: 6 }}>
             <IconPlus width={13} height={13} /> Add
           </button>
-          <button className="icon-btn" onClick={toggle} aria-label="Toggle theme" style={{ marginLeft: 6 }}>
-            {theme === 'dark' ? <IconSun /> : <IconMoon />}
+          <button
+            className="icon-btn"
+            onClick={toggleHideAmounts}
+            aria-label={hideAmounts ? 'Show amounts' : 'Hide amounts'}
+            title={hideAmounts ? 'Show amounts' : 'Hide amounts'}
+            style={{ marginLeft: 6 }}
+          >
+            {hideAmounts ? <IconEyeOff /> : <IconEye />}
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => {
+              cycle()
+              const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light'
+              notify(next === 'light' ? '☀️ Light theme' : next === 'dark' ? '🌙 Dark theme' : '💻 System theme')
+            }}
+            aria-label={mode === 'light' ? 'Light theme — click for dark' : mode === 'dark' ? 'Dark theme — click for system' : 'System theme — click for light'}
+            title={mode === 'light' ? 'Light' : mode === 'dark' ? 'Dark' : 'System'}
+            style={{ marginLeft: 2 }}
+          >
+            {mode === 'light' ? <IconSun /> : mode === 'dark' ? <IconMoon /> : <IconSystem />}
           </button>
         </div>
       </header>
@@ -237,6 +338,10 @@ export default function App() {
             onAdd={openAddTx}
             onSettle={settleMonth}
             onUnsettle={unsettleMonth}
+            hideAmounts={hideAmounts}
+            clockCountry={clock.countryCode}
+            clockTimezone={clock.tz}
+            clockFormat={settings.clockFormat || '24h'}
           />
         )}
         {tab === 'transactions' && (
@@ -248,6 +353,7 @@ export default function App() {
             onEdit={openEditTx}
             onDelete={deleteTx}
             onAdd={openAddTx}
+            hideAmounts={hideAmounts}
           />
         )}
         {tab === 'goals' && (
@@ -268,6 +374,7 @@ export default function App() {
             onToggle={toggleDebt}
             onEdit={openEditDebt}
             onDelete={deleteDebt}
+            hideAmounts={hideAmounts}
           />
         )}
         {tab === 'settings' && (

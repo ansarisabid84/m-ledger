@@ -114,6 +114,14 @@ const DEFAULT_SETTINGS = {
   monthlyBudget: 0,
   autoCarryForward: false,
   smsDetection: false,
+  hideAmounts: false,
+  clockCountry: null,    // ISO-2 country code e.g. 'IN', 'US', 'NP'
+  clockTimezone: null,   // IANA tz string e.g. 'Asia/Kolkata'
+  clockCurrency: null,   // legacy — superseded by clockCountry/clockTimezone
+  clockFormat: '24h',    // '24h' | '12h'
+  // App lock: 'device' uses the phone's own lock screen as the barrier (re-locks on background).
+  // 'pin' adds an explicit 4-digit PIN inside the app.
+  appLock: { enabled: false, lockType: 'device', pin: null, pinHintEnabled: false, pinHint: '' },
   categoryBudgets: {},
   reminders: {
     dailyLog: { enabled: false, time: '21:00' },
@@ -137,6 +145,14 @@ export function loadSettings() {
     monthlyBudget: s.monthlyBudget ?? DEFAULT_SETTINGS.monthlyBudget,
     autoCarryForward: s.autoCarryForward ?? DEFAULT_SETTINGS.autoCarryForward,
     smsDetection: s.smsDetection ?? false,
+    hideAmounts: s.hideAmounts ?? false,
+    clockCountry: s.clockCountry ?? null,
+    clockTimezone: s.clockTimezone ?? null,
+    clockCurrency: s.clockCurrency ?? null,
+    clockFormat: s.clockFormat ?? '24h',
+    appLock: s.appLock
+      ? { enabled: !!s.appLock.enabled, lockType: s.appLock.lockType || 'device', pin: s.appLock.pin || null, pinHintEnabled: !!s.appLock.pinHintEnabled, pinHint: s.appLock.pinHint || '' }
+      : { enabled: false, lockType: 'device', pin: null, pinHintEnabled: false, pinHint: '' },
     categoryBudgets: s.categoryBudgets ?? {},
     reminders: {
       dailyLog: { ...DEFAULT_SETTINGS.reminders.dailyLog, ...(s.reminders?.dailyLog || {}) },

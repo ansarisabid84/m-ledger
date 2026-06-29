@@ -13,6 +13,10 @@
 			"backgroundColor": "#0e1311",
 			"androidScaleType": "CENTER_CROP",
 			"showSpinner": false
+		},
+		"StatusBar": {
+			"overlaysWebView": true,
+			"style": "DARK"
 		}
 	},
 	"packageClassList": [

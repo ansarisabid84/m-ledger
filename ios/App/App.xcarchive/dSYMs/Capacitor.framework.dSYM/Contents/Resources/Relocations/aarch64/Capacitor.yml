@@ -719,7 +719,7 @@ relocations:
   - { offset: 0x78826, size: 0x8, addend: 0x0, symName: '_$s9Capacitor24ApplicationDelegateProxyC11application_4open7optionsSbSo13UIApplicationC_10Foundation3URLVSDySo0H17OpenURLOptionsKeyaypGtFTf4dnnn_n', symObjAddr: 0x518, symBinAddr: 0x25064, symSize: 0x2BC }
   - { offset: 0x7896E, size: 0x8, addend: 0x0, symName: '_$s9Capacitor24ApplicationDelegateProxyC11application_8continue18restorationHandlerSbSo13UIApplicationC_So14NSUserActivityCySaySo06UIUserK9Restoring_pGSgctFTf4dndn_n', symObjAddr: 0x7D4, symBinAddr: 0x25320, symSize: 0x624 }
   - { offset: 0x78BBD, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9CAPBridgeC27statusBarTappedNotification_WZ', symObjAddr: 0x0, symBinAddr: 0x25B40, symSize: 0x9C }
-  - { offset: 0x78BE1, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9CAPBridgeC27statusBarTappedNotification10Foundation0F0VvpZ', symObjAddr: 0x3B10, symBinAddr: 0xA6800, symSize: 0x0 }
+  - { offset: 0x78BE1, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9CAPBridgeC27statusBarTappedNotification10Foundation0F0VvpZ', symObjAddr: 0x3B08, symBinAddr: 0xA6800, symSize: 0x0 }
   - { offset: 0x78C00, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9CAPBridgeC27statusBarTappedNotification_WZ', symObjAddr: 0x0, symBinAddr: 0x25B40, symSize: 0x9C }
   - { offset: 0x78C28, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9CAPBridgeC27statusBarTappedNotification10Foundation0F0Vvau', symObjAddr: 0x9C, symBinAddr: 0x25BDC, symSize: 0x48 }
   - { offset: 0x78D62, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9CAPBridgeCfETo', symObjAddr: 0x534, symBinAddr: 0x25FA0, symSize: 0x4 }
@@ -1658,7 +1658,7 @@ relocations:
   - { offset: 0x9F9F1, size: 0x8, addend: 0x0, symName: '_$s9Capacitor7KeyPathVMa', symObjAddr: 0x630, symBinAddr: 0x50190, symSize: 0x10 }
   - { offset: 0x9FB75, size: 0x8, addend: 0x0, symName: '_$sSD9CapacitorSSRszAA7JSValue_pRs_rlE7keyPathAaB_pSgAA03KeyD0V_tcig', symObjAddr: 0x0, symBinAddr: 0x4FCEC, symSize: 0x258 }
   - { offset: 0x9FFFA, size: 0x8, addend: 0x0, symName: '_$s9Capacitor13KeyValueStoreC8standardACvau', symObjAddr: 0x0, symBinAddr: 0x501A8, symSize: 0x40 }
-  - { offset: 0xA001E, size: 0x8, addend: 0x0, symName: '_$s9Capacitor13KeyValueStoreC8standardACvpZ', symObjAddr: 0xE530, symBinAddr: 0xA68B0, symSize: 0x0 }
+  - { offset: 0xA001E, size: 0x8, addend: 0x0, symName: '_$s9Capacitor13KeyValueStoreC8standardACvpZ', symObjAddr: 0xE528, symBinAddr: 0xA68B0, symSize: 0x0 }
   - { offset: 0xA03BD, size: 0x8, addend: 0x0, symName: '_$s9Capacitor13KeyValueStoreC8standardACvau', symObjAddr: 0x0, symBinAddr: 0x501A8, symSize: 0x40 }
   - { offset: 0xA06EC, size: 0x8, addend: 0x0, symName: '_$s9Capacitor13KeyValueStoreC8standard_WZ', symObjAddr: 0x994, symBinAddr: 0x50B3C, symSize: 0x68 }
   - { offset: 0xA07F3, size: 0x8, addend: 0x0, symName: '_$s9Capacitor9FileStore33_C037C347CF1CD06D719C8EAD67CE5F9DLLC9instances_WZ', symObjAddr: 0x13B4, symBinAddr: 0x51544, symSize: 0x60 }
