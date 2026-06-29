@@ -217,7 +217,7 @@ function ClockCalendarSection({ settings, updateSettings }) {
   )
 }
 
-function AppLockSection({ lock, updateSettings, notify }) {
+function AppLockSection({ lock, updateSettings, notify, guardAction }) {
   const [showPinSetup, setShowPinSetup] = useState(false)
   const lockType = lock.lockType || 'device'
 
@@ -338,7 +338,7 @@ function AppLockSection({ lock, updateSettings, notify }) {
               </div>
             </>
           )}
-          <button className="btn btn-danger btn-sm" onClick={disable}>Disable lock</button>
+          <button className="btn btn-danger btn-sm" onClick={() => guardAction(disable)}>Disable lock</button>
         </>
       )}
     </div>
@@ -591,7 +591,7 @@ export default function Settings({
       <ClockCalendarSection settings={settings} updateSettings={updateSettings} />
 
       {/* App Lock */}
-      <AppLockSection lock={settings.appLock || { enabled: false, pin: null }} updateSettings={updateSettings} notify={notify} />
+      <AppLockSection lock={settings.appLock || { enabled: false, pin: null }} updateSettings={updateSettings} notify={notify} guardAction={guardAction} />
 
       {/* SMS / Notification detection */}
       <div className="card card-pad">
