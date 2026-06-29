@@ -60,6 +60,13 @@ export function fmtDate(iso) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+export const AMOUNT_MASK = '***'
+
+export function maskMoney(amount, currencyCode, hide) {
+  if (hide) return AMOUNT_MASK
+  return fmtMoney(amount, currencyCode)
+}
+
 export function relativeDay(iso) {
   const today = todayISO()
   if (iso === today) return 'Today'

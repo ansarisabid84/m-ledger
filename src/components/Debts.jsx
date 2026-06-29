@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { fmtMoney, fmtDate, todayISO } from '../lib/format'
+import { fmtMoney, maskMoney, AMOUNT_MASK, fmtDate, todayISO } from '../lib/format'
 import { IconCheck, IconUndo, IconEdit, IconTrash, IconUsers } from './icons'
 
-function DebtCard({ d, currency, onToggle, onEdit, onDelete }) {
+function DebtCard({ d, currency, onToggle, onEdit, onDelete, hideAmounts }) {
   const isLent = d.kind === 'lent'
   const settled = d.status === 'settled'
   const overdue = !settled && d.dueDate && d.dueDate < todayISO()
@@ -28,7 +28,7 @@ function DebtCard({ d, currency, onToggle, onEdit, onDelete }) {
       </div>
       <div className="debt-right">
         <div className="debt-amt num" style={{ color: settled ? 'var(--ink-faint)' : tone }}>
-          {fmtMoney(d.amount, currency)}
+          {maskMoney(d.amount, currency, hideAmounts)}
         </div>
         <div className="debt-actions">
           <button className="btn btn-sm" onClick={() => onToggle(d.id)} title={settled ? 'Reopen' : isLent ? 'Mark received' : 'Mark paid'}>
@@ -42,7 +42,7 @@ function DebtCard({ d, currency, onToggle, onEdit, onDelete }) {
   )
 }
 
-export default function Debts({ debts, currency, onAdd, onToggle, onEdit, onDelete }) {
+export default function Debts({ debts, currency, onAdd, onToggle, onEdit, onDelete, hideAmounts }) {
   const [filter, setFilter] = useState('open') // open | borrowed | lent | settled
 
   const totals = useMemo(() => {
@@ -81,12 +81,12 @@ export default function Debts({ debts, currency, onAdd, onToggle, onEdit, onDele
       <div className="hero">
         <div className="hero-label">Net position</div>
         <div className="hero-balance" style={{ color: net >= 0 ? 'var(--income)' : 'var(--expense)' }}>
-          {net < 0 ? '−' : ''}{fmtMoney(Math.abs(net), currency)}
+          {hideAmounts ? AMOUNT_MASK : (net < 0 ? '−' : '') + fmtMoney(Math.abs(net), currency)}
         </div>
-        <div className="hero-meta">{net >= 0 ? 'In your favour' : 'You owe more than you’re owed'}</div>
+        <div className="hero-meta">{net >= 0 ? 'In your favour' : "You owe more than you're owed"}</div>
         <div className="flow-legend" style={{ marginTop: 16 }}>
-          <span><span className="dot" style={{ background: 'var(--income)' }} />Owed to you <b>{fmtMoney(totals.owedToMe, currency)}</b></span>
-          <span><span className="dot" style={{ background: 'var(--expense)' }} />You owe <b>{fmtMoney(totals.iOwe, currency)}</b></span>
+          <span><span className="dot" style={{ background: 'var(--income)' }} />Owed to you <b>{maskMoney(totals.owedToMe, currency, hideAmounts)}</b></span>
+          <span><span className="dot" style={{ background: 'var(--expense)' }} />You owe <b>{maskMoney(totals.iOwe, currency, hideAmounts)}</b></span>
         </div>
       </div>
 
@@ -101,13 +101,13 @@ export default function Debts({ debts, currency, onAdd, onToggle, onEdit, onDele
           <div className="empty" style={{ padding: '32px 0' }}>
             <div className="empty-ico"><IconUsers width={28} height={28} /></div>
             <h3>{filter === 'settled' ? 'Nothing settled yet' : 'No records here'}</h3>
-            <p style={{ marginBottom: 16 }}>Track money you lend out or borrow, and tick it off when it’s squared up.</p>
+            <p style={{ marginBottom: 16 }}>Track money you lend out or borrow, and tick it off when it's squared up.</p>
             <button className="btn btn-primary" onClick={onAdd}>Add record</button>
           </div>
         ) : (
           <div className="debt-list">
             {shown.map((d) => (
-              <DebtCard key={d.id} d={d} currency={currency} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
+              <DebtCard key={d.id} d={d} currency={currency} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} hideAmounts={hideAmounts} />
             ))}
           </div>
         )}

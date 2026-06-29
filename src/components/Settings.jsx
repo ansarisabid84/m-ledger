@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { BiometricAuth } from '@aparajita/capacitor-biometric-auth'
+import PinGateModal from './PinGate'
 import { CURRENCIES, EXPENSE_CATEGORIES } from '../lib/constants'
+import { COUNTRIES, resolveClock } from '../lib/calendar'
 import { exportTransactionsJSON, exportCSV, exportDebtsCSV, exportBackup, parseImport } from '../lib/storage'
 import { filterByMonth } from '../lib/stats'
 import { monthLabel, currencySymbol } from '../lib/format'
 import { staticRate } from '../lib/rates'
 import { notifSupported, getPermission, requestPermission, sendTestNotification, isNative } from '../lib/notify'
-import { IconDownload, IconUpload, IconTrash, IconBell, IconPlus, IconClose } from './icons'
+import { IconDownload, IconUpload, IconTrash, IconBell, IconPlus, IconClose, IconLock } from './icons'
 
 function download(filename, text, mime) {
   const blob = new Blob([text], { type: mime })
@@ -27,17 +30,335 @@ function Toggle({ checked, onChange, label }) {
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
 
+function PinSetup({ onDone, onCancel }) {
+  const [stage, setStage] = useState('enter') // 'enter' | 'confirm'
+  const [input, setInput] = useState('')
+  const [first, setFirst] = useState('')
+  const [error, setError] = useState('')
+
+  function handleDigit(d) {
+    const next = input + d
+    if (next.length > 4) return
+    setInput(next); setError('')
+    if (next.length === 4) {
+      if (stage === 'enter') { setFirst(next); setInput(''); setStage('confirm') }
+      else if (next === first) { onDone(next) }
+      else { setError('PINs do not match — try again.'); setInput(''); setStage('enter'); setFirst('') }
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 10, textAlign: 'center' }}>
+        {stage === 'enter' ? 'Enter new PIN (4 digits)' : 'Confirm your PIN'}
+      </div>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 12 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < input.length ? 'var(--brand)' : 'var(--border)', transition: 'background 0.15s' }} />
+        ))}
+      </div>
+      {error && <div style={{ fontSize: 11, color: 'var(--expense)', textAlign: 'center', marginBottom: 8 }}>{error}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxWidth: 220, margin: '0 auto' }}>
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, '⌫'].map((k, i) => (
+          <button key={i}
+            onClick={() => { if (k === '') return; if (k === '⌫') { setInput((v) => v.slice(0, -1)); return }; handleDigit(String(k)) }}
+            style={{ height: 44, borderRadius: 10, border: '1px solid var(--border)', background: k === '' ? 'transparent' : 'var(--surface)', fontSize: k === '⌫' ? 16 : 18, fontWeight: 600, cursor: k === '' ? 'default' : 'pointer', color: 'var(--ink)' }}
+          >{k}</button>
+        ))}
+      </div>
+      <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function AddReminderModal({ onAdd, onClose }) {
+  const [label, setLabel] = useState('')
+  const [time, setTime] = useState('09:00')
+  const overlayRef = useRef(null)
+
+  function submit() {
+    if (!label.trim()) return
+    onAdd(label, time)
+  }
+
+  return (
+    <div
+      className="modal-overlay"
+      ref={overlayRef}
+      onMouseDown={(e) => e.target === overlayRef.current && onClose()}
+      style={{ zIndex: 300 }}
+    >
+      <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 340 }}>
+        <div className="modal-grab" />
+        <div className="modal-head">
+          <h3 style={{ fontSize: 15 }}>New reminder</h3>
+          <button className="icon-btn" onClick={onClose}><IconClose /></button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label className="label" style={{ marginBottom: 4, display: 'block' }}>Label</label>
+            <input
+              className="input"
+              placeholder="e.g. Check weekly budget"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              maxLength={50}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label" style={{ marginBottom: 4, display: 'block' }}>Time</label>
+            <input className="input time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={submit} disabled={!label.trim()}>Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Live-ticking Clock & Calendar section — needs its own component to drive the interval
+function ClockCalendarSection({ settings, updateSettings }) {
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const resolved = resolveClock(settings)
+  const selectedCountry = COUNTRIES.find((c) => c.code === resolved.countryCode) || COUNTRIES[0]
+
+  return (
+    <div className="card card-pad">
+      <div className="card-head"><span className="card-title">Clock &amp; Calendar</span></div>
+      <p className="muted" style={{ marginTop: 0, fontSize: 11.5 }}>
+        Choose which country and timezone to show on the Dashboard clock. Countries with multiple timezones let you pick a specific region.
+      </p>
+
+      <label className="label" style={{ marginBottom: 6, display: 'block' }}>Country</label>
+      <div style={{ position: 'relative', marginBottom: 14 }}>
+        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 20, pointerEvents: 'none', lineHeight: 1 }}>
+          {selectedCountry.flag}
+        </span>
+        <select
+          className="select"
+          value={resolved.countryCode}
+          onChange={(e) => {
+            const c = COUNTRIES.find((x) => x.code === e.target.value)
+            if (c) updateSettings({ clockCountry: c.code, clockTimezone: c.timezones[0].tz })
+          }}
+          style={{ paddingLeft: 38, fontSize: 13, fontWeight: 600 }}
+        >
+          {COUNTRIES.map((c) => (
+            <option key={c.code} value={c.code}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedCountry.timezones.length > 1 && (
+        <>
+          <label className="label" style={{ marginBottom: 6, display: 'block' }}>Timezone — {selectedCountry.flag} {selectedCountry.name}</label>
+          <div className="chips" style={{ marginBottom: 14 }}>
+            {selectedCountry.timezones.map((t) => (
+              <button
+                key={t.tz}
+                className={'chip' + (resolved.tz === t.tz ? ' active' : '')}
+                onClick={() => updateSettings({ clockTimezone: t.tz })}
+              >
+                <span style={{ fontWeight: 700 }}>{t.label}</span>
+                <span style={{ fontSize: 10, marginLeft: 3 }}>{t.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <label className="label" style={{ marginBottom: 6, display: 'block' }}>Time format</label>
+      <div className="seg" style={{ width: '100%', maxWidth: 200 }}>
+        <button className={settings.clockFormat !== '12h' ? 'active' : ''} style={{ flex: 1 }} onClick={() => updateSettings({ clockFormat: '24h' })}>24h</button>
+        <button className={settings.clockFormat === '12h' ? 'active' : ''} style={{ flex: 1 }} onClick={() => updateSettings({ clockFormat: '12h' })}>12h</button>
+      </div>
+
+      <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 22 }}>{selectedCountry.flag}</span>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-faint)', fontWeight: 600 }}>Preview · live</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>
+            {(() => {
+              try {
+                return now.toLocaleTimeString('en-US', {
+                  timeZone: resolved.tz,
+                  hour: '2-digit', minute: '2-digit', second: '2-digit',
+                  hour12: settings.clockFormat === '12h',
+                })
+              } catch { return '—' }
+            })()}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 1 }}>
+            {(() => {
+              try {
+                return now.toLocaleDateString('en-US', {
+                  timeZone: resolved.tz,
+                  weekday: 'short', month: 'short', day: 'numeric',
+                })
+              } catch { return '' }
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AppLockSection({ lock, updateSettings, notify }) {
+  const [showPinSetup, setShowPinSetup] = useState(false)
+  const lockType = lock.lockType || 'device'
+
+  function enable(type) {
+    if (type === 'device') {
+      updateSettings({ appLock: { ...lock, enabled: true, lockType: 'device' } })
+      notify('App lock enabled — uses your device lock')
+    } else {
+      setShowPinSetup(true)
+    }
+  }
+
+  function pinDone(pin) {
+    updateSettings({ appLock: { enabled: true, lockType: 'pin', pin } })
+    setShowPinSetup(false)
+    notify('Custom PIN set')
+  }
+
+  function switchType(type) {
+    if (type === lockType) return
+    if (type === 'pin') { setShowPinSetup(true) }
+    else { updateSettings({ appLock: { ...lock, lockType: 'device', pin: null } }); notify('Switched to device lock') }
+  }
+
+  function disable() {
+    updateSettings({ appLock: { enabled: false, lockType: 'device', pin: null } })
+    notify('App lock disabled')
+  }
+
+  return (
+    <div className="card card-pad">
+      <div className="card-head">
+        <span className="card-title">App Lock</span>
+        {lock.enabled && (
+          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'var(--income-tint)', color: 'var(--income)', fontWeight: 700 }}>Active</span>
+        )}
+      </div>
+      <p className="muted" style={{ marginTop: 0, fontSize: 11.5 }}>
+        Lock the app when it goes to background. Re-opens with your device lock or a custom PIN.
+      </p>
+
+      {!lock.enabled && !showPinSetup && (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+            {[
+              { type: 'device', icon: '📱', title: 'Device lock', desc: 'Use your phone\'s Face ID, fingerprint, or passcode. Recommended.' },
+              { type: 'pin', icon: '🔢', title: 'Custom PIN', desc: 'Set your own 4-digit PIN inside the app.' },
+            ].map(({ type, icon, title, desc }) => (
+              <button
+                key={type}
+                onClick={() => enable(type)}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
+                  borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface)',
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>{icon}</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{title}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 2 }}>{desc}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {showPinSetup && (
+        <PinSetup onDone={pinDone} onCancel={() => setShowPinSetup(false)} />
+      )}
+
+      {lock.enabled && !showPinSetup && (
+        <>
+          {/* Mode switcher */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-faint)', marginBottom: 6 }}>Lock method</div>
+            <div className="seg" style={{ width: '100%' }}>
+              <button className={lockType === 'device' ? 'active' : ''} style={{ flex: 1 }} onClick={() => switchType('device')}>
+                📱 Device lock
+              </button>
+              <button className={lockType === 'pin' ? 'active' : ''} style={{ flex: 1 }} onClick={() => switchType('pin')}>
+                🔢 Custom PIN
+              </button>
+            </div>
+          </div>
+          {lockType === 'pin' && (
+            <>
+              <button className="btn btn-sm" style={{ marginBottom: 10 }} onClick={() => setShowPinSetup(true)}>Change PIN</button>
+
+              {/* PIN hint toggle */}
+              <div style={{ marginBottom: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: lock.pinHintEnabled ? 8 : 0 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>PIN hint</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 1 }}>Show a hint on the lock screen if you forget your PIN</div>
+                  </div>
+                  <span
+                    title="When enabled, shows a text hint and partially reveals 2 digits of your PIN after 3 wrong attempts. Never stores your PIN in plain sight."
+                    style={{ fontSize: 14, cursor: 'help', color: 'var(--ink-faint)' }}
+                  >ℹ️</span>
+                  <Toggle
+                    checked={!!lock.pinHintEnabled}
+                    onChange={(v) => updateSettings({ appLock: { ...lock, pinHintEnabled: v } })}
+                    label="PIN hint"
+                  />
+                </div>
+                {lock.pinHintEnabled && (
+                  <input
+                    className="input"
+                    placeholder="e.g. My birth year, favourite number…"
+                    value={lock.pinHint || ''}
+                    onChange={(e) => updateSettings({ appLock: { ...lock, pinHint: e.target.value } })}
+                    maxLength={60}
+                    style={{ fontSize: 12 }}
+                  />
+                )}
+              </div>
+            </>
+          )}
+          <button className="btn btn-danger btn-sm" onClick={disable}>Disable lock</button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Settings({
   settings, updateSettings, transactions, debts, settlements, months,
   replaceAll, replaceDebts, replaceSettlements, clearAll, notify,
 }) {
   const fileRef = useRef(null)
-  const [confirmClear, setConfirmClear] = useState(false)
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [pendingAction, setPendingAction] = useState(null) // { fn } — stored when PIN gate is open
+  const [showAllFeatures, setShowAllFeatures] = useState(false)
+  const [showAllReminders, setShowAllReminders] = useState(false)
+  const [showAddReminder, setShowAddReminder] = useState(false)
   const [scope, setScope] = useState('all')
   const [perm, setPerm] = useState('default')
   const [prevCurrency, setPrevCurrency] = useState(settings.currency)
   const [showReconvert, setShowReconvert] = useState(false)
-  const [newReminderLabel, setNewReminderLabel] = useState('')
   const [showCatBudgets, setShowCatBudgets] = useState(false)
 
   useEffect(() => {
@@ -49,6 +370,33 @@ export default function Settings({
 
   const scopedTx = scope === 'all' ? transactions : filterByMonth(transactions, scope)
   const scopeName = scope === 'all' ? 'all' : scope
+
+  async function guardAction(fn) {
+    const lock = settings.appLock
+    if (!lock?.enabled) { fn(); return }
+    if (lock.lockType === 'pin' && lock.pin) {
+      setPendingAction({ fn })
+      return
+    }
+    // device lock — trigger native biometric/passcode prompt
+    if (!isNative()) { fn(); return } // web has no real device lock
+    try {
+      await BiometricAuth.authenticate({
+        reason: 'Authenticate to continue',
+        cancelTitle: 'Cancel',
+        allowDeviceCredential: true,
+        iosFallbackTitle: 'Use Passcode',
+        androidTitle: 'Authentication Required',
+        androidSubtitle: 'Confirm your identity to proceed',
+      })
+      fn()
+    } catch (err) {
+      const code = err?.code || ''
+      if (code !== 'userCancel' && code !== 'systemCancel') {
+        notify('Authentication failed')
+      }
+    }
+  }
 
   function handleCurrencyChange(code) {
     if (code !== settings.currency) {
@@ -109,12 +457,11 @@ export default function Settings({
     updateSettings({ reminders: { ...reminders, [key]: { ...reminders[key], ...patch } } })
   }
 
-  function addCustomReminder() {
-    const label = newReminderLabel.trim()
-    if (!label) return
-    const custom = [...(reminders.custom || []), { id: uid(), label, time: '09:00', enabled: true }]
+  function addCustomReminder(label, time = '09:00') {
+    const l = label.trim()
+    if (!l) return
+    const custom = [...(reminders.custom || []), { id: uid(), label: l, time, enabled: true }]
     updateSettings({ reminders: { ...reminders, custom } })
-    setNewReminderLabel('')
   }
 
   function updateCustomReminder(id, patch) {
@@ -140,7 +487,6 @@ export default function Settings({
   return (
     <div className="section">
       <div>
-        <div className="eyebrow">Preferences</div>
         <h2 className="page-title">Settings</h2>
       </div>
 
@@ -241,6 +587,12 @@ export default function Settings({
         </div>
       </div>
 
+      {/* Clock & Calendar */}
+      <ClockCalendarSection settings={settings} updateSettings={updateSettings} />
+
+      {/* App Lock */}
+      <AppLockSection lock={settings.appLock || { enabled: false, pin: null }} updateSettings={updateSettings} notify={notify} />
+
       {/* SMS / Notification detection */}
       <div className="card card-pad">
         <div className="card-head">
@@ -264,7 +616,20 @@ export default function Settings({
 
       {/* Reminders */}
       <div className="card card-pad">
-        <div className="card-head"><span className="card-title">Reminders</span></div>
+        <div className="card-head">
+          <span className="card-title">Reminders</span>
+          {perm === 'granted' && (
+            <button
+              className="icon-btn"
+              style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center' }}
+              onClick={() => setShowAddReminder(true)}
+              aria-label="Add reminder"
+              title="Add reminder"
+            >
+              <IconPlus width={14} height={14} />
+            </button>
+          )}
+        </div>
         {!notifSupported() ? (
           <p className="muted" style={{ marginTop: 0, fontSize: 11.5 }}>This browser doesn't support notifications.</p>
         ) : perm !== 'granted' ? (
@@ -278,7 +643,7 @@ export default function Settings({
           </div>
         ) : (
           <div className="reminder-list">
-            {/* Fixed reminders */}
+            {/* Fixed reminders — always shown */}
             <div className="reminder-row">
               <div>
                 <div className="reminder-name">Daily log reminder</div>
@@ -302,46 +667,48 @@ export default function Settings({
               </div>
             </div>
 
-            {/* Custom reminders */}
-            {(reminders.custom || []).map((r) => (
-              <div className="reminder-row" key={r.id}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <input
-                    className="input"
-                    value={r.label}
-                    onChange={(e) => updateCustomReminder(r.id, { label: e.target.value })}
-                    style={{ fontSize: 12, padding: '5px 8px', marginBottom: 2 }}
-                    placeholder="Reminder label"
-                    maxLength={50}
-                  />
-                  <div className="reminder-sub">Custom reminder</div>
-                </div>
-                <div className="reminder-ctl" style={{ gap: 6 }}>
-                  <input className="input time" type="time" value={r.time}
-                    onChange={(e) => updateCustomReminder(r.id, { time: e.target.value })} disabled={!r.enabled} />
-                  <Toggle checked={r.enabled} onChange={(v) => updateCustomReminder(r.id, { enabled: v })} label={r.label} />
-                  <button className="tx-act" onClick={() => removeCustomReminder(r.id)} aria-label="Delete reminder">
-                    <IconClose width={13} height={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {/* Add custom reminder */}
-            <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-              <input
-                className="input"
-                placeholder="New reminder label…"
-                value={newReminderLabel}
-                onChange={(e) => setNewReminderLabel(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addCustomReminder()}
-                style={{ fontSize: 12 }}
-                maxLength={50}
-              />
-              <button className="btn btn-sm" onClick={addCustomReminder} disabled={!newReminderLabel.trim()}>
-                <IconPlus width={12} height={12} /> Add
-              </button>
-            </div>
+            {/* Custom reminders — collapse after 5 */}
+            {(() => {
+              const custom = reminders.custom || []
+              const LIMIT = 5
+              const visible = showAllReminders ? custom : custom.slice(0, LIMIT)
+              return (
+                <>
+                  {visible.map((r) => (
+                    <div className="reminder-row" key={r.id}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <input
+                          className="input"
+                          value={r.label}
+                          onChange={(e) => updateCustomReminder(r.id, { label: e.target.value })}
+                          style={{ fontSize: 12, padding: '5px 8px', marginBottom: 2 }}
+                          placeholder="Reminder label"
+                          maxLength={50}
+                        />
+                        <div className="reminder-sub">Custom reminder</div>
+                      </div>
+                      <div className="reminder-ctl" style={{ gap: 6 }}>
+                        <input className="input time" type="time" value={r.time}
+                          onChange={(e) => updateCustomReminder(r.id, { time: e.target.value })} disabled={!r.enabled} />
+                        <Toggle checked={r.enabled} onChange={(v) => updateCustomReminder(r.id, { enabled: v })} label={r.label} />
+                        <button className="tx-act" onClick={() => removeCustomReminder(r.id)} aria-label="Delete reminder">
+                          <IconClose width={13} height={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {custom.length > LIMIT && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ marginTop: 4, fontSize: 11 }}
+                      onClick={() => setShowAllReminders((v) => !v)}
+                    >
+                      {showAllReminders ? 'Show less ↑' : `Show ${custom.length - LIMIT} more ↓`}
+                    </button>
+                  )}
+                </>
+              )
+            })()}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <button className="btn btn-sm" onClick={() => sendTestNotification()}>Send a test</button>
@@ -355,6 +722,14 @@ export default function Settings({
         )}
       </div>
 
+      {/* Add reminder popup */}
+      {showAddReminder && (
+        <AddReminderModal
+          onAdd={(label, time) => { addCustomReminder(label, time); setShowAddReminder(false) }}
+          onClose={() => setShowAddReminder(false)}
+        />
+      )}
+
       {/* Export / data */}
       <div className="card card-pad">
         <div className="card-head"><span className="card-title">Export</span></div>
@@ -367,13 +742,13 @@ export default function Settings({
           </select>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={() => download(`ledger-${scopeName}-${stamp}.json`, exportTransactionsJSON(scopedTx, scopeName), 'application/json')}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-${scopeName}-${stamp}.json`, exportTransactionsJSON(scopedTx, scopeName), 'application/json'))}>
             <IconDownload /> JSON
           </button>
-          <button className="btn" onClick={() => download(`ledger-${scopeName}-${stamp}.csv`, exportCSV(scopedTx), 'text/csv')}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-${scopeName}-${stamp}.csv`, exportCSV(scopedTx), 'text/csv'))}>
             <IconDownload /> CSV
           </button>
-          <button className="btn" onClick={() => download(`ledger-debts-${stamp}.csv`, exportDebtsCSV(debts), 'text/csv')}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-debts-${stamp}.csv`, exportDebtsCSV(debts), 'text/csv'))}>
             <IconDownload /> Debts CSV
           </button>
         </div>
@@ -385,7 +760,7 @@ export default function Settings({
           Full backup includes transactions, debts, settlements and settings — restore on any device.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={() => download(`ledger-backup-${stamp}.json`, exportBackup({ transactions, debts, settlements, settings }), 'application/json')}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-backup-${stamp}.json`, exportBackup({ transactions, debts, settlements, settings }), 'application/json'))}>
             <IconDownload /> Full backup
           </button>
           <button className="btn" onClick={() => fileRef.current?.click()}>
@@ -396,16 +771,41 @@ export default function Settings({
 
         <div style={{ height: 1, background: 'var(--border)', margin: '14px 0' }} />
 
-        {!confirmClear ? (
-          <button className="btn btn-danger" onClick={() => setConfirmClear(true)}><IconTrash /> Clear all data</button>
-        ) : (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Delete all transactions, debts &amp; settlements?</span>
-            <button className="btn btn-danger" onClick={() => { clearAll(); setConfirmClear(false); notify('All data cleared') }}>Yes, delete</button>
-            <button className="btn btn-ghost" onClick={() => setConfirmClear(false)}>Cancel</button>
+        <button className="btn btn-danger" onClick={() => guardAction(() => setShowClearModal(true))}><IconTrash /> Clear all data</button>
+
+        {showClearModal && (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', padding: 24 }}
+            onMouseDown={(e) => e.target === e.currentTarget && setShowClearModal(false)}
+          >
+            <div style={{ background: 'var(--surface)', borderRadius: 18, padding: '28px 24px', maxWidth: 320, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🗑️</div>
+              <h3 style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 700 }}>Delete all data?</h3>
+              <p style={{ margin: '0 0 22px', fontSize: 13, color: 'var(--ink-faint)', lineHeight: 1.55 }}>
+                This will permanently delete all transactions, debts, settlements, and goals. <strong>This cannot be undone.</strong>
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowClearModal(false)}>Cancel</button>
+                <button
+                  className="btn btn-danger"
+                  style={{ flex: 1 }}
+                  onClick={() => { clearAll(); setShowClearModal(false); notify('All data cleared') }}
+                >
+                  Delete all
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
+
+      {pendingAction && (
+        <PinGateModal
+          storedPin={settings.appLock?.pin}
+          onSuccess={() => { const { fn } = pendingAction; setPendingAction(null); fn() }}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
 
       <div className="card card-pad">
         <div className="card-head">
@@ -414,29 +814,47 @@ export default function Settings({
         </div>
 
         <p style={{ margin: '0 0 12px', fontSize: 12, lineHeight: 1.6, color: 'var(--ink)' }}>
-          <strong>Ledger</strong> is a personal finance tracker — track income, expenses, borrowed &amp; lent money, savings goals, and monthly balance.
+          <strong>Ledger</strong> is a privacy-first personal finance tracker — built to stay fully offline, on your device. Track income, expenses, debts, goals, and monthly balance with zero accounts or cloud sync.
         </p>
 
-        <div className="about-features">
-          {[
-            ['✈️', 'Fully offline', 'All data on-device. No internet, no account, no cloud.'],
-            ['💱', 'Multi-currency', 'Log in any currency, auto-convert to your base.'],
-            ['📊', 'Dashboard & insights', 'Spending breakdown, trends, and smart insights.'],
-            ['🔁', 'Recurring transactions', 'Auto-add daily, weekly, or monthly repeating entries.'],
-            ['🎯', 'Savings goals', 'Track progress toward financial targets.'],
-            ['📲', 'SMS detection', 'Paste a bank SMS to auto-detect transactions.'],
-            ['🔔', 'Reminders', 'Daily log nudges, debt follow-ups, and custom alerts.'],
-            ['💾', 'Backup & restore', 'Export full backup as JSON; restore on any device.'],
-          ].map(([icon, title, desc]) => (
-            <div key={title} className="about-feature-row">
-              <span className="about-feature-icon">{icon}</span>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink)' }}>{title}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 1 }}>{desc}</div>
+        {(() => {
+          const ALL_FEATURES = [
+            ['✈️', 'Fully offline', 'All data lives on your device — no internet, no account, no cloud required.'],
+            ['📊', 'Dashboard & insights', 'Spending breakdown by category, income vs expense trends, and smart monthly insights.'],
+            ['🔒', 'App lock', 'Face ID, fingerprint, or custom PIN — re-locks when the app goes to background.'],
+            ['👁️', 'Amount privacy', 'One-tap toggle to mask all amounts — requires auth to reveal when app lock is on.'],
+            ['💾', 'Backup & restore', 'Export a full JSON backup of all data; restore on any device instantly.'],
+            ['💱', 'Multi-currency', 'Log in any currency with live exchange rates; auto-convert to your base currency.'],
+            ['🌍', 'World clock & calendar', '35+ countries with correct timezones; Nepal shows Bikram Sambat dates.'],
+            ['🔁', 'Recurring transactions', 'Auto-add daily, weekly, monthly, or yearly repeating entries.'],
+            ['🎯', 'Savings goals', 'Set a target, contribute over time, and track progress visually.'],
+            ['📲', 'SMS detection', 'Paste a bank SMS to auto-detect and pre-fill a transaction.'],
+            ['🔔', 'Reminders', 'Daily log nudges, debt follow-ups, and unlimited custom scheduled alerts.'],
+          ]
+          const visible = showAllFeatures ? ALL_FEATURES : ALL_FEATURES.slice(0, 5)
+          return (
+            <>
+              <div className="about-features">
+                {visible.map(([icon, title, desc]) => (
+                  <div key={title} className="about-feature-row">
+                    <span className="about-feature-icon">{icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink)' }}>{title}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 1 }}>{desc}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ marginTop: 8, fontSize: 11 }}
+                onClick={() => setShowAllFeatures((v) => !v)}
+              >
+                {showAllFeatures ? 'Show less ↑' : `Show ${ALL_FEATURES.length - 5} more features ↓`}
+              </button>
+            </>
+          )
+        })()}
 
         <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
 

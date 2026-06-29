@@ -143,15 +143,35 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 13 }}>
-          <div className="field">
-            <label className="label">Date</label>
-            <input className="input" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="label">Note <span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}>(optional)</span></label>
-            <input className="input" type="text" placeholder="e.g. Lunch" value={note} onChange={(e) => setNote(e.target.value)} maxLength={80} />
-          </div>
+        <div className="field" style={{ marginBottom: 10 }}>
+          <label className="label">Date</label>
+          <input
+            className="input"
+            type="date"
+            value={date}
+            max={todayISO()}
+            onChange={(e) => setDate(e.target.value)}
+            style={{ fontSize: 16 }}
+          />
+        </div>
+
+        <div className="field" style={{ marginBottom: 13 }}>
+          <label className="label">Note <span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}>(optional)</span></label>
+          <input
+            className="input"
+            type="text"
+            placeholder="e.g. Lunch with team"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={80}
+            style={{ fontSize: 16 }}
+            onBlur={() => {
+              // iOS: reset viewport after keyboard dismisses to prevent stuck-zoomed layout
+              if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                setTimeout(() => window.scrollTo(0, 0), 50)
+              }
+            }}
+          />
         </div>
 
         {/* Recurring */}

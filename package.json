@@ -1,7 +1,7 @@
 {
   "name": "ledger-finance-tracker",
   "private": true,
-  "version": "5.0.0",
+  "version": "6.0.0",
   "type": "module",
   "description": "Ledger — a daily personal finance tracker, on web and as native Android/iOS apps via Capacitor.",
   "scripts": {
@@ -16,6 +16,7 @@
     "run:ios": "npm run build && cap run ios"
   },
   "dependencies": {
+    "@aparajita/capacitor-biometric-auth": "^8.0.2",
     "@capacitor/android": "^6.2.0",
     "@capacitor/app": "^6.0.2",
     "@capacitor/core": "^6.2.0",
