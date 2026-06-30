@@ -565,22 +565,21 @@ export default function Dashboard({
       <div className="stat-grid">
         <StatTile label="Income" value={maskMoney(t.income, currency, hideAmounts)} tone="var(--income)" tint="var(--income-tint)" icon={<IconUp />} />
         <StatTile label="Expenses" value={maskMoney(t.expense, currency, hideAmounts)} tone="var(--expense)" tint="var(--expense-tint)" icon={<IconDown />} />
-        {savingsRate !== null && (
-          <StatTile
-            label="Savings rate"
-            value={hideAmounts ? AMOUNT_MASK : `${savingsRate}%`}
-            tone={savingsRate >= 0 ? 'var(--income)' : 'var(--expense)'}
-            tint={savingsRate >= 0 ? 'var(--income-tint)' : 'var(--expense-tint)'}
-            icon="💰"
-            subtitle={!hideAmounts && (
-              savingsRate < 0 ? 'Outspending income — one cut changes everything.' :
-              savingsRate === 0 ? 'Breaking even. A rupee saved is a rupee earned.' :
-              savingsRate < 20 ? 'Small drops fill the ocean. Keep going.' :
-              savingsRate < 50 ? 'Solid. Future you is building something real.' :
-              'Half saved. Future you is very proud.'
-            )}
-          />
-        )}
+        <StatTile
+          label="Savings rate"
+          value={hideAmounts ? AMOUNT_MASK : savingsRate !== null ? `${savingsRate}%` : '—'}
+          tone={savingsRate !== null && savingsRate < 0 ? 'var(--expense)' : 'var(--income)'}
+          tint={savingsRate !== null && savingsRate < 0 ? 'var(--expense-tint)' : 'var(--income-tint)'}
+          icon="💰"
+          subtitle={!hideAmounts && (
+            savingsRate === null ? 'Log your first income to see your savings rate.' :
+            savingsRate < 0 ? 'Outspending income — one cut changes everything.' :
+            savingsRate === 0 ? 'Breaking even. A rupee saved is a rupee earned.' :
+            savingsRate < 20 ? 'Small drops fill the ocean. Keep going.' :
+            savingsRate < 50 ? 'Solid. Future you is building something real.' :
+            'Half saved. Future you is very proud.'
+          )}
+        />
         <StatTile
           label="Day streak"
           value={`${streak}d`}

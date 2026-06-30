@@ -107,6 +107,87 @@ export async function nativeTestNotification() {
   }
 }
 
+/* ---------------- file export / share --------------- */
+
+// On native: write content to a temp file in Cache, then open the system share sheet
+// so the user can choose Save to Files, Mail, Drive, etc.
+export async function nativeShare(filename, content) {
+  try {
+    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+    const { Share } = await import('@capacitor/share')
+    const res = await Filesystem.writeFile({
+      path: filename,
+      data: content,
+      directory: Directory.Cache,
+      encoding: Encoding.UTF8,
+    })
+    await Share.share({ title: filename, files: [res.uri] })
+    // best-effort cleanup — share sheet might still be open, so fire-and-forget
+    Filesystem.deleteFile({ path: filename, directory: Directory.Cache }).catch(() => {})
+  } catch (err) {
+    const code = err?.errorMessage || err?.message || ''
+    if (code.toLowerCase().includes('cancel')) return // user dismissed sheet — not an error
+    throw err
+  }
+}
+
+// Request external storage permission on Android (no-op on iOS — returns true).
+export async function requestStoragePermission() {
+  if (window.Capacitor?.getPlatform?.() !== 'android') return true
+  try {
+    const { Filesystem } = await import('@capacitor/filesystem')
+    const check = await Filesystem.checkPermissions()
+    if (check.publicStorage === 'granted') return true
+    const res = await Filesystem.requestPermissions()
+    return res.publicStorage === 'granted'
+  } catch {
+    return false
+  }
+}
+
+// Human-readable description of where auto-backups are stored.
+export function backupLocationLabel(folderName = 'Backups') {
+  const p = window.Capacitor?.getPlatform?.()
+  if (p === 'android') return `Internal storage / ${folderName}/`
+  if (p === 'ios') return `Files → On My iPhone → Ledger → ${folderName}/`
+  return folderName
+}
+
+// Write a full backup to the user's chosen folder, keeping exactly 2 versions:
+//   ledger-backup-current.json  — the latest
+//   ledger-backup-previous.json — the one before that
+// Android: External public storage (survives app uninstall, requires permission).
+// iOS: App Documents folder (visible in Files app via UIFileSharingEnabled, included in iCloud device backup).
+// Returns the file URI on success, null on failure.
+export async function nativeWriteBackup(content, folderName = 'Backups') {
+  try {
+    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+    const platform = window.Capacitor?.getPlatform?.()
+    const directory = platform === 'android' ? Directory.ExternalStorage : Directory.Documents
+    const folder = (folderName || 'Backups').replace(/[\\:*?"<>|]/g, '').trim() || 'Backups'
+
+    try { await Filesystem.mkdir({ path: folder, directory, recursive: true }) } catch {}
+
+    const current  = `${folder}/ledger-backup-current.json`
+    const previous = `${folder}/ledger-backup-previous.json`
+
+    // Rotate: delete old previous, promote current → previous
+    try { await Filesystem.deleteFile({ path: previous, directory }) } catch {}
+    try { await Filesystem.rename({ from: current, to: previous, directory }) } catch {}
+
+    // Write new current
+    const res = await Filesystem.writeFile({
+      path: current,
+      data: content,
+      directory,
+      encoding: Encoding.UTF8,
+    })
+    return res.uri || current
+  } catch {
+    return null
+  }
+}
+
 /* ---------------- storage durability ----------------
    Mirror each write into Capacitor Preferences and restore on boot, so data
    survives if the WebView ever clears localStorage. */

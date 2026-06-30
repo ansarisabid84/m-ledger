@@ -20,8 +20,8 @@ import { listMonths, filterByMonth, totals } from './lib/stats'
 import { buildSettlement, settlementFor, openingBalance } from './lib/settlements'
 import { monthKey, todayISO } from './lib/format'
 import { resolveClock } from './lib/calendar'
-import { isNative, nativeSyncReminders } from './lib/native'
-import { isSeedBannerVisible, markDataModified, makeTransaction } from './lib/storage'
+import { isNative, nativeSyncReminders, nativeWriteBackup } from './lib/native'
+import { isSeedBannerVisible, markDataModified, makeTransaction, exportBackup } from './lib/storage'
 import { processDueRecurring } from './lib/recurring'
 import {
   IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconSystem, IconUsers, IconTarget, IconEye, IconEyeOff,
@@ -84,6 +84,27 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisChange)
     return () => document.removeEventListener('visibilitychange', onVisChange)
   }, [settings.appLock])
+
+  // Auto-backup — runs when the app comes to foreground and interval has elapsed
+  useEffect(() => {
+    if (!isNative()) return
+    async function checkBackup() {
+      if (document.visibilityState !== 'visible') return
+      const ab = settings.autoBackup
+      if (!ab?.enabled || !ab?.intervalHours) return
+      const intervalMs = ab.intervalHours * 60 * 60 * 1000
+      if (ab.lastBackupAt && Date.now() - ab.lastBackupAt < intervalMs) return
+      const content = exportBackup({ transactions: tx.transactions, debts: dbt.debts, settlements: stl.settlements, settings, goals: goals.goals })
+      const uri = await nativeWriteBackup(content, ab.folderName || 'Ledger')
+      if (uri) {
+        update({ autoBackup: { ...ab, lastBackupAt: Date.now() } })
+        notify('Auto-backup saved')
+      }
+    }
+    checkBackup()
+    document.addEventListener('visibilitychange', checkBackup)
+    return () => document.removeEventListener('visibilitychange', checkBackup)
+  }, [settings.autoBackup]) // eslint-disable-line
 
   // Auto carry-forward
   useEffect(() => {
@@ -388,6 +409,8 @@ export default function App() {
             replaceAll={tx.replaceAll}
             replaceDebts={dbt.replaceDebts}
             replaceSettlements={stl.replaceSettlements}
+            goals={goals.goals}
+            replaceGoals={goals.replaceGoals}
             clearAll={clearEverything}
             notify={notify}
           />
