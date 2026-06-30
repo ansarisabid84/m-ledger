@@ -32,5 +32,9 @@ export function useGoals() {
     persist(goals.filter((g) => g.id !== id))
   }, [goals, persist])
 
-  return { goals, addGoal, updateGoal, contributeToGoal, deleteGoal }
+  const replaceGoals = useCallback((list) => {
+    persist(Array.isArray(list) ? list : [])
+  }, [persist])
+
+  return { goals, addGoal, updateGoal, contributeToGoal, deleteGoal, replaceGoals }
 }

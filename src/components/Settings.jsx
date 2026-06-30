@@ -8,9 +8,19 @@ import { filterByMonth } from '../lib/stats'
 import { monthLabel, currencySymbol } from '../lib/format'
 import { staticRate } from '../lib/rates'
 import { notifSupported, getPermission, requestPermission, sendTestNotification, isNative } from '../lib/notify'
+import { nativeShare, backupLocationLabel, requestStoragePermission } from '../lib/native'
 import { IconDownload, IconUpload, IconTrash, IconBell, IconPlus, IconClose, IconLock } from './icons'
 
-function download(filename, text, mime) {
+async function download(filename, text, notifyFn) {
+  if (isNative()) {
+    try {
+      await nativeShare(filename, text)
+    } catch {
+      notifyFn?.('Export failed — please try again')
+    }
+    return
+  }
+  const mime = filename.endsWith('.csv') ? 'text/csv' : 'application/json'
   const blob = new Blob([text], { type: mime })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -238,8 +248,10 @@ function AppLockSection({ lock, updateSettings, notify, guardAction }) {
 
   function switchType(type) {
     if (type === lockType) return
-    if (type === 'pin') { setShowPinSetup(true) }
-    else { updateSettings({ appLock: { ...lock, lockType: 'device', pin: null } }); notify('Switched to device lock') }
+    guardAction(() => {
+      if (type === 'pin') { setShowPinSetup(true) }
+      else { updateSettings({ appLock: { ...lock, lockType: 'device', pin: null } }); notify('Switched to device lock') }
+    })
   }
 
   function disable() {
@@ -306,7 +318,7 @@ function AppLockSection({ lock, updateSettings, notify, guardAction }) {
           </div>
           {lockType === 'pin' && (
             <>
-              <button className="btn btn-sm" style={{ marginBottom: 10 }} onClick={() => setShowPinSetup(true)}>Change PIN</button>
+              <button className="btn btn-sm" style={{ marginBottom: 10 }} onClick={() => guardAction(() => setShowPinSetup(true))}>Change PIN</button>
 
               {/* PIN hint toggle */}
               <div style={{ marginBottom: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10 }}>
@@ -345,9 +357,137 @@ function AppLockSection({ lock, updateSettings, notify, guardAction }) {
   )
 }
 
+const BACKUP_INTERVALS = [
+  { label: 'Every hour', hours: 1 },
+  { label: 'Every 6 hours', hours: 6 },
+  { label: 'Every 12 hours', hours: 12 },
+  { label: 'Every day', hours: 24 },
+  { label: 'Every 2 days', hours: 48 },
+  { label: 'Every week', hours: 168 },
+]
+
+function AutoBackupSection({ autoBackup, updateSettings, getBackupData, notify, guardAction }) {
+  const { enabled, intervalHours, lastBackupAt, folderName = 'Ledger' } = autoBackup
+  const [editingFolder, setEditingFolder] = useState(false)
+  const [folderInput, setFolderInput] = useState(folderName)
+  const platform = typeof window !== 'undefined' ? (window.Capacitor?.getPlatform?.() || 'web') : 'web'
+
+  async function handleToggle(v) {
+    if (!v) {
+      // Turning off requires auth
+      guardAction(() => updateSettings({ autoBackup: { ...autoBackup, enabled: false } }))
+      return
+    }
+    // Turning on: request storage permission on Android
+    if (platform === 'android') {
+      const granted = await requestStoragePermission()
+      if (!granted) {
+        notify('Storage permission denied — backup will not work')
+        return
+      }
+    }
+    updateSettings({ autoBackup: { ...autoBackup, enabled: true } })
+  }
+
+  async function runNow() {
+    const { nativeWriteBackup } = await import('../lib/native')
+    const uri = await nativeWriteBackup(getBackupData(), folderName)
+    if (uri) {
+      updateSettings({ autoBackup: { ...autoBackup, lastBackupAt: Date.now() } })
+      notify('Backup saved')
+    } else {
+      notify('Backup failed — check storage permissions')
+    }
+  }
+
+  function saveFolder() {
+    const name = folderInput.trim().replace(/[\\:*?"<>|]/g, '') || 'Ledger'
+    setFolderInput(name)
+    updateSettings({ autoBackup: { ...autoBackup, folderName: name } })
+    setEditingFolder(false)
+  }
+
+  function fmt(ts) {
+    if (!ts) return 'Never'
+    return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const locationNote = platform === 'android'
+    ? 'Saved to external storage — files survive app uninstall.'
+    : '⚠️ These files are inside the app sandbox. They will be deleted if you uninstall the app. To keep a safe copy, use "Full backup" above and save it to iCloud Drive or another location of your choice.'
+
+  return (
+    <div>
+      <div className="card-head" style={{ marginBottom: 6 }}><span className="card-title">Auto-backup</span></div>
+      <p className="muted" style={{ marginTop: 0, marginBottom: 10, fontSize: 11.5 }}>
+        Automatically saves a complete backup (transactions, debts, goals, settings) on a schedule.
+      </p>
+
+      {/* Enable toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Enable auto-backup</div>
+        <Toggle checked={enabled} onChange={handleToggle} label="Auto-backup" />
+      </div>
+
+      {/* Backup location (always shown so user knows where files go) */}
+      <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-faint)', marginBottom: 4 }}>Backup location</div>
+        {editingFolder ? (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              className="input"
+              value={folderInput}
+              onChange={(e) => setFolderInput(e.target.value)}
+              placeholder="Ledger"
+              style={{ flex: 1, fontSize: 13 }}
+              maxLength={40}
+              autoFocus
+            />
+            <button className="btn btn-sm" onClick={saveFolder}>Save</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setFolderInput(folderName); setEditingFolder(false) }}>Cancel</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>{backupLocationLabel(folderName)}</div>
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ fontSize: 11, padding: '2px 8px' }}
+              onClick={() => { setFolderInput(folderName); setEditingFolder(true) }}
+            >
+              Change
+            </button>
+          </div>
+        )}
+        <div style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 5 }}>{locationNote}</div>
+      </div>
+
+      {enabled && (
+        <>
+          <label className="label" style={{ marginBottom: 4, display: 'block' }}>Frequency</label>
+          <select
+            className="select"
+            value={intervalHours}
+            onChange={(e) => updateSettings({ autoBackup: { ...autoBackup, intervalHours: Number(e.target.value) } })}
+            style={{ marginBottom: 10, fontSize: 13 }}
+          >
+            {BACKUP_INTERVALS.map(({ label, hours }) => (
+              <option key={hours} value={hours}>{label}</option>
+            ))}
+          </select>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Last backup: {fmt(lastBackupAt)}</div>
+            <button className="btn btn-sm" style={{ fontSize: 11 }} onClick={runNow}>Back up now</button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Settings({
   settings, updateSettings, transactions, debts, settlements, months,
-  replaceAll, replaceDebts, replaceSettlements, clearAll, notify,
+  replaceAll, replaceDebts, replaceSettlements, goals, replaceGoals, clearAll, notify,
 }) {
   const fileRef = useRef(null)
   const [showClearModal, setShowClearModal] = useState(false)
@@ -432,7 +572,8 @@ export default function Settings({
         replaceAll(parsed.transactions)
         if (parsed.debts) replaceDebts(parsed.debts)
         if (parsed.settlements) replaceSettlements(parsed.settlements)
-        const extra = [parsed.debts && 'debts', parsed.settlements && 'settlements'].filter(Boolean)
+        if (parsed.goals) replaceGoals(parsed.goals)
+        const extra = [parsed.debts && 'debts', parsed.settlements && 'settlements', parsed.goals && 'goals'].filter(Boolean)
         notify(`Imported ${parsed.transactions.length} transactions${extra.length ? ' + ' + extra.join(' & ') : ''}`)
       } catch {
         notify('Import failed — invalid file')
@@ -742,13 +883,13 @@ export default function Settings({
           </select>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={() => guardAction(() => download(`ledger-${scopeName}-${stamp}.json`, exportTransactionsJSON(scopedTx, scopeName), 'application/json'))}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-${scopeName}-${stamp}.json`, exportTransactionsJSON(scopedTx, scopeName), notify))}>
             <IconDownload /> JSON
           </button>
-          <button className="btn" onClick={() => guardAction(() => download(`ledger-${scopeName}-${stamp}.csv`, exportCSV(scopedTx), 'text/csv'))}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-${scopeName}-${stamp}.csv`, exportCSV(scopedTx), notify))}>
             <IconDownload /> CSV
           </button>
-          <button className="btn" onClick={() => guardAction(() => download(`ledger-debts-${stamp}.csv`, exportDebtsCSV(debts), 'text/csv'))}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-debts-${stamp}.csv`, exportDebtsCSV(debts), notify))}>
             <IconDownload /> Debts CSV
           </button>
         </div>
@@ -760,7 +901,7 @@ export default function Settings({
           Full backup includes transactions, debts, settlements and settings — restore on any device.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={() => guardAction(() => download(`ledger-backup-${stamp}.json`, exportBackup({ transactions, debts, settlements, settings }), 'application/json'))}>
+          <button className="btn" onClick={() => guardAction(() => download(`ledger-backup-${stamp}.json`, exportBackup({ transactions, debts, settlements, settings, goals }), notify))}>
             <IconDownload /> Full backup
           </button>
           <button className="btn" onClick={() => fileRef.current?.click()}>
@@ -768,6 +909,19 @@ export default function Settings({
           </button>
           <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={handleImport} />
         </div>
+
+        {isNative() && (
+          <>
+            <div style={{ height: 1, background: 'var(--border)', margin: '14px 0' }} />
+            <AutoBackupSection
+              autoBackup={settings.autoBackup || { enabled: false, intervalHours: 24, lastBackupAt: null, folderName: 'Backups' }}
+              updateSettings={updateSettings}
+              getBackupData={() => exportBackup({ transactions, debts, settlements, settings, goals })}
+              notify={notify}
+              guardAction={guardAction}
+            />
+          </>
+        )}
 
         <div style={{ height: 1, background: 'var(--border)', margin: '14px 0' }} />
 

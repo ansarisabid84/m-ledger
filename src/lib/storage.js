@@ -122,6 +122,7 @@ const DEFAULT_SETTINGS = {
   // App lock: 'device' uses the phone's own lock screen as the barrier (re-locks on background).
   // 'pin' adds an explicit 4-digit PIN inside the app.
   appLock: { enabled: false, lockType: 'device', pin: null, pinHintEnabled: false, pinHint: '' },
+  autoBackup: { enabled: false, intervalHours: 24, lastBackupAt: null, folderName: 'Backups' },
   categoryBudgets: {},
   reminders: {
     dailyLog: { enabled: false, time: '21:00' },
@@ -153,6 +154,9 @@ export function loadSettings() {
     appLock: s.appLock
       ? { enabled: !!s.appLock.enabled, lockType: s.appLock.lockType || 'device', pin: s.appLock.pin || null, pinHintEnabled: !!s.appLock.pinHintEnabled, pinHint: s.appLock.pinHint || '' }
       : { enabled: false, lockType: 'device', pin: null, pinHintEnabled: false, pinHint: '' },
+    autoBackup: s.autoBackup
+      ? { enabled: !!s.autoBackup.enabled, intervalHours: Number(s.autoBackup.intervalHours) || 24, lastBackupAt: s.autoBackup.lastBackupAt || null, folderName: s.autoBackup.folderName || 'Backups' }
+      : { enabled: false, intervalHours: 24, lastBackupAt: null, folderName: 'Backups' },
     categoryBudgets: s.categoryBudgets ?? {},
     reminders: {
       dailyLog: { ...DEFAULT_SETTINGS.reminders.dailyLog, ...(s.reminders?.dailyLog || {}) },
@@ -193,9 +197,9 @@ export function exportDebtsCSV(list) {
 }
 
 // Full backup: everything needed to restore the app on another device.
-export function exportBackup({ transactions, debts, settlements, settings }) {
+export function exportBackup({ transactions, debts, settlements, settings, goals }) {
   return JSON.stringify(
-    { app: 'ledger', version: 2, exportedAt: new Date().toISOString(), transactions, debts, settlements, settings },
+    { app: 'ledger', version: 2, exportedAt: new Date().toISOString(), transactions, debts, settlements, settings, goals: goals || [] },
     null,
     2
   )
@@ -249,7 +253,9 @@ export function parseImport(text) {
       }))
     : null
 
-  return { transactions, debts, settlements }
+  const goals = Array.isArray(data.goals) ? data.goals : null
+
+  return { transactions, debts, settlements, goals }
 }
 
 /* ---------------- savings goals ---------------- */
