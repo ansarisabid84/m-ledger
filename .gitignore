@@ -20,4 +20,4 @@ ios/App/Pods
 ios/App/output
 DerivedData
 *.keystore
-venv/
+venv/signed_jks/
