@@ -49,6 +49,8 @@ export function saveTransactions(list) {
   safeWrite(TX_KEY, list)
 }
 
+export const newId = uid
+
 export function makeTransaction(data) {
   return {
     id: uid(),
@@ -93,6 +95,7 @@ export function makeDebt(data) {
     note: (data.note || '').trim(),
     status: 'open', // 'open' | 'settled'
     settledDate: null,
+    repayments: [], // partial payments: [{ id, amount, date }]
     createdAt: Date.now(),
   }
 }
@@ -116,7 +119,8 @@ const DEFAULT_SETTINGS = {
   // false = expense-only mode: income entry, balances and settlements are hidden
   // (stored income data is kept, just not shown).
   trackIncome: true,
-  dashboard: { style: 'glass', widgets: null }, // widgets: null = default order
+  dashboard: { widgets: null }, // widgets: null = default order
+  userName: '',
   autoCarryForward: false,
   smsDetection: false,
   hideAmounts: false,
@@ -153,10 +157,8 @@ export function loadSettings() {
     smsDetection: s.smsDetection ?? false,
     hideAmounts: s.hideAmounts ?? false,
     trackIncome: s.trackIncome ?? true,
-    dashboard: {
-      style: s.dashboard?.style === 'classic' ? 'classic' : 'glass',
-      widgets: Array.isArray(s.dashboard?.widgets) ? s.dashboard.widgets : null,
-    },
+    dashboard: { widgets: Array.isArray(s.dashboard?.widgets) ? s.dashboard.widgets : null },
+    userName: typeof s.userName === 'string' ? s.userName.slice(0, 30) : '',
     clockCountry: s.clockCountry ?? null,
     clockTimezone: s.clockTimezone ?? null,
     clockCurrency: s.clockCurrency ?? null,
@@ -281,6 +283,9 @@ export function parseImport(text) {
           note: d.note || '',
           status: d.status === 'settled' ? 'settled' : 'open',
           settledDate: d.settledDate || null,
+          repayments: Array.isArray(d.repayments)
+            ? d.repayments.filter((r) => r && Number(r.amount) > 0).map((r) => ({ id: r.id || uid(), amount: Number(r.amount), date: r.date || '' }))
+            : [],
           createdAt: d.createdAt || Date.now(),
         }))
     : null

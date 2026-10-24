@@ -1,0 +1,50 @@
+Ledger is a beautiful, private expense tracker that works completely offline. No account, no ads, no cloud — your money data stays on your device.
+
+Track what you spend, stay inside your budget and always know how much you can safely spend today.
+
+KNOW WHAT YOU CAN SPEND TODAY
+• Daily allowance based on your monthly budget and the days left
+• Month-end forecast that warns you before you overspend
+• Category budgets with alerts at 80% and 100%
+• Spending streaks to build a daily logging habit
+
+LOG AN EXPENSE IN SECONDS
+• Big amount field, one-tap category tiles and payment methods (UPI, cards, cash, net banking, wallet)
+• Quick-add chips for the expenses you repeat most
+• Log in any currency with automatic conversion
+• Paste a bank SMS to pre-fill a transaction (optional)
+• Undo a delete instantly
+
+SEE WHERE YOUR MONEY GOES
+• Heat-map spending calendar — tap a day to filter
+• Search and filter by category, method or note
+• Swipe a transaction to edit or delete
+• Charts by category, payment method and 6-month trend
+• Swipe left or right to change month, everywhere
+
+YOUR DASHBOARD, YOUR WAY
+• Reorder, hide or show widgets to design your own Home screen
+• Expenses-only mode: turn income tracking off for a simple, focused ledger — or keep full income, balance and month-end settlements
+
+PLAN AHEAD
+• Bills & subscriptions: every recurring payment in one place — pause, resume or stop
+• Savings goals with progress, deadlines and contributions
+• Borrowed & lent tracker with due dates and part payments
+• Smart reminders: daily logging nudge, debt follow-ups and custom alerts
+
+PRIVATE BY DESIGN
+• App lock with fingerprint / Face ID or your own PIN
+• One-tap hide-amounts toggle
+• 100% offline — no sign-up, no tracking
+
+SAFE BACKUPS
+• Full JSON backup and restore (merge or replace)
+• Automatic scheduled backups to your device
+• Export transactions to CSV or JSON
+
+LIQUID-GLASS DESIGN
+A modern translucent interface in light and dark mode, with a world clock and calendar (including Bikram Sambat for Nepal) built in.
+
+Supports NPR, INR, USD, EUR, GBP, JPY and AED.
+
+Ledger is built to be calm, fast and trustworthy. Download it and take control of your spending today.

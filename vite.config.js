@@ -3,7 +3,17 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { readFileSync } from 'fs'
 
-const { version } = JSON.parse(readFileSync('./package.json', 'utf-8'))
+// Single source of truth for the version shown in About: android/app/build.gradle (versionName),
+// so the in-app version always matches the Play Store build. Falls back to package.json.
+function appVersion() {
+  try {
+    const gradle = readFileSync('./android/app/build.gradle', 'utf-8')
+    const m = gradle.match(/versionName\s+["']([^"']+)["']/)
+    if (m) return m[1]
+  } catch {}
+  return JSON.parse(readFileSync('./package.json', 'utf-8')).version
+}
+const version = appVersion()
 
 export default defineConfig({
   define: {

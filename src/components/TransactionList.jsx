@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { CATEGORY_MAP, METHOD_MAP, PAYMENT_METHODS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../lib/constants'
-import { fmtMoney, maskMoney, AMOUNT_MASK, fmtDate, relativeDay, monthLabel } from '../lib/format'
+import { fmtMoney, maskMoney, AMOUNT_MASK, fmtDate, relativeDay, monthLabel, todayISO } from '../lib/format'
 import { filterByMonth, listMonths, totals } from '../lib/stats'
-import MonthNav from './MonthNav'
+import MonthPager from './MonthPager'
+import { useSwipe } from '../hooks/useSwipe'
 import { IconSearch, IconEdit, IconTrash, IconList, IconClose } from './icons'
 
 // ─── Detail modal ────────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ function TxRow({ t, currency, onView, onEdit, onDelete, hideAmounts }) {
         <div className="tx-sub">
           <span className="tx-method">{method.icon} {method.label}</span>
           <span>{relativeDay(t.date)}</span>
+          {(t.recurring?.enabled || t._fromRecurring) && <span className="tx-recurring">↻ recurring</span>}
         </div>
       </div>
       <div className={'tx-amt ' + (isIncome ? 'pos' : 'neg')} style={{ cursor: 'pointer' }} onClick={() => onView(t)}>
@@ -114,6 +116,95 @@ function TxRow({ t, currency, onView, onEdit, onDelete, hideAmounts }) {
   )
 }
 
+// ─── Swipe-to-reveal actions (touch) ─────────────────────────────────────────
+
+const ACTION_W = 136
+
+function SwipeRow({ children, onEdit, onDelete }) {
+  const [dx, setDx] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const st = useRef({ x: 0, y: 0, base: 0, locked: null })
+
+  function start(e) {
+    const t = e.touches[0]
+    st.current = { x: t.clientX, y: t.clientY, base: dx, locked: null }
+  }
+  function move(e) {
+    const t = e.touches[0]
+    const mx = t.clientX - st.current.x
+    const my = t.clientY - st.current.y
+    if (st.current.locked == null && (Math.abs(mx) > 8 || Math.abs(my) > 8)) st.current.locked = Math.abs(mx) > Math.abs(my) * 1.5 ? 'h' : 'v'
+    if (st.current.locked !== 'h') return
+    setDragging(true)
+    setDx(Math.max(-ACTION_W, Math.min(0, st.current.base + mx)))
+  }
+  function end() {
+    setDragging(false)
+    if (st.current.locked === 'h') setDx((v) => (v < -ACTION_W / 2.5 ? -ACTION_W : 0))
+  }
+
+  return (
+    <div className="swipe-row" data-noswipe>
+      <div className="swipe-row-actions" style={{ visibility: dx < 0 ? 'visible' : 'hidden' }}>
+        <button className="sw-edit" onClick={() => { setDx(0); onEdit() }}><IconEdit width={16} height={16} />Edit</button>
+        <button className="sw-del" onClick={() => { setDx(0); onDelete() }}><IconTrash width={16} height={16} />Delete</button>
+      </div>
+      <div
+        className={'swipe-row-body' + (dragging ? ' dragging' : '')}
+        style={{ transform: `translateX(${dx}px)`, background: dx ? 'var(--surface-solid)' : 'transparent' }}
+        onTouchStart={start} onTouchMove={move} onTouchEnd={end} onTouchCancel={end}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ─── Spending calendar (heat map) ────────────────────────────────────────────
+
+function HeatCalendar({ month, transactions, selected, onSelect, currency, hideAmounts }) {
+  const [y, m] = month.split('-').map(Number)
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7 // Monday-first
+  const perDay = useMemo(() => {
+    const map = {}
+    for (const t of transactions) if (t.type === 'expense') map[t.date] = (map[t.date] || 0) + t.amount
+    return map
+  }, [transactions])
+  const max = Math.max(1, ...Object.values(perDay))
+  const today = todayISO()
+  const cells = []
+  for (let i = 0; i < lead; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${month}-${String(d).padStart(2, '0')}`)
+
+  return (
+    <div>
+      <div className="heat" style={{ marginBottom: 6 }}>
+        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} className="heat-head">{d}</div>)}
+      </div>
+      <div className="heat">
+        {cells.map((iso, i) => {
+          if (!iso) return <div key={i} className="heat-cell blank" />
+          const v = perDay[iso] || 0
+          const a = v ? 0.18 + 0.62 * (v / max) : 0
+          return (
+            <button
+              key={iso}
+              className={'heat-cell' + (iso === today ? ' today' : '') + (selected === iso ? ' sel' : '')}
+              style={v ? { background: `color-mix(in srgb, var(--expense) ${Math.round(a * 100)}%, transparent)` } : undefined}
+              onClick={() => onSelect(selected === iso ? null : iso)}
+              title={v && !hideAmounts ? fmtMoney(v, currency) : ''}
+              aria-label={`${iso}${v ? ' spent ' + (hideAmounts ? '' : fmtMoney(v, currency)) : ''}`}
+            >
+              {Number(iso.slice(8))}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── List ────────────────────────────────────────────────────────────────────
 
 export default function TransactionList({ transactions, trackIncome = true, currency, month, onMonthChange, onEdit, onDelete, onAdd, hideAmounts }) {
@@ -122,6 +213,8 @@ export default function TransactionList({ transactions, trackIncome = true, curr
   const [method, setMethod] = useState('all')
   const [category, setCategory] = useState('all')
   const [viewing, setViewing] = useState(null)
+  const [showCal, setShowCal] = useState(false)
+  const [day, setDay] = useState(null)
 
   const months = useMemo(() => listMonths(transactions), [transactions])
   const inScope = useMemo(() => filterByMonth(transactions, month), [transactions, month])
@@ -133,6 +226,7 @@ export default function TransactionList({ transactions, trackIncome = true, curr
       if (type !== 'all' && t.type !== type) return false
       if (method !== 'all' && t.method !== method) return false
       if (category !== 'all' && t.category !== category) return false
+      if (day && t.date !== day) return false
       if (term) {
         const cat = (CATEGORY_MAP[t.category]?.label || '').toLowerCase()
         const hay = `${cat} ${t.note || ''}`.toLowerCase()
@@ -140,7 +234,7 @@ export default function TransactionList({ transactions, trackIncome = true, curr
       }
       return true
     })
-  }, [inScope, q, type, method, category])
+  }, [inScope, q, type, method, category, day])
 
   const groups = useMemo(() => {
     const map = new Map()
@@ -153,15 +247,20 @@ export default function TransactionList({ transactions, trackIncome = true, curr
 
   const catOptions = !trackIncome ? EXPENSE_CATEGORIES : type === 'income' ? INCOME_CATEGORIES : type === 'expense' ? EXPENSE_CATEGORIES : [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]
 
+  const mIdx = months.indexOf(month)
+  const swipe = useSwipe({
+    onLeft: () => { if (month !== 'all' && mIdx > 0) { onMonthChange(months[mIdx - 1]); setDay(null) } },
+    onRight: () => { if (month !== 'all' && mIdx < months.length - 1) { onMonthChange(months[mIdx + 1]); setDay(null) } },
+  })
+  const hasFilter = q || type !== 'all' || method !== 'all' || category !== 'all' || day
+
   return (
-    <div className="section">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <div className="eyebrow">{month === 'all' ? 'All transactions' : monthLabel(month)}</div>
-          <h2 className="page-title">History</h2>
-        </div>
-        <MonthNav months={months} value={month} onChange={onMonthChange} />
+    <div className="section" {...swipe}>
+      <div>
+        <div className="eyebrow">{month === 'all' ? 'All transactions' : monthLabel(month)}</div>
+        <h2 className="page-title">History</h2>
       </div>
+      <MonthPager months={months} value={month} onChange={(m) => { onMonthChange(m); setDay(null) }} />
 
       <div className="stat-grid">
         {trackIncome && (
@@ -178,10 +277,23 @@ export default function TransactionList({ transactions, trackIncome = true, curr
 
       <div className="card card-pad">
         <div className="filter-stack" style={{ marginBottom: 12 }}>
-          <div className="search">
-            <IconSearch />
-            <input className="input" placeholder="Search notes or categories…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div className="search" style={{ flex: 1 }}>
+              <IconSearch />
+              <input className="input" placeholder="Search notes or categories…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            {month !== 'all' && (
+              <button className={'icon-btn' + (showCal ? ' active' : '')} style={{ width: 46, height: 'auto', color: showCal ? 'var(--brand)' : undefined }} onClick={() => setShowCal((v) => !v)} aria-label="Toggle spending calendar" title="Spending calendar">
+                <span style={{ fontSize: 18 }}>🗓️</span>
+              </button>
+            )}
           </div>
+          {showCal && month !== 'all' && (
+            <div data-noswipe style={{ padding: '4px 0 2px' }}>
+              <HeatCalendar month={month} transactions={inScope} selected={day} onSelect={setDay} currency={currency} hideAmounts={hideAmounts} />
+              <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 8, textAlign: 'center' }}>Darker = more spent. Tap a day to filter.</div>
+            </div>
+          )}
           <div className="filter-row">
             {trackIncome && (
               <select className="select filter-select" value={type} onChange={(e) => { setType(e.target.value); setCategory('all') }}>
@@ -208,7 +320,8 @@ export default function TransactionList({ transactions, trackIncome = true, curr
             <p style={{ marginBottom: 16 }}>
               {inScope.length === 0 ? 'Add a transaction or pick another month.' : 'Try clearing the filters above.'}
             </p>
-            {inScope.length === 0 && <button className="btn btn-primary" onClick={onAdd}>Add transaction</button>}
+            {inScope.length === 0 && <button className="btn btn-primary" onClick={() => onAdd()}>{trackIncome ? 'Add transaction' : 'Add expense'}</button>}
+            {inScope.length > 0 && hasFilter && <button className="btn" onClick={() => { setQ(''); setType('all'); setMethod('all'); setCategory('all'); setDay(null) }}>Clear filters</button>}
           </div>
         ) : (
           <div>
@@ -225,7 +338,9 @@ export default function TransactionList({ transactions, trackIncome = true, curr
                   </div>
                   <div className="tx-list">
                     {items.map((t) => (
-                      <TxRow key={t.id} t={t} currency={currency} onView={setViewing} onEdit={onEdit} onDelete={onDelete} hideAmounts={hideAmounts} />
+                      <SwipeRow key={t.id} onEdit={() => onEdit(t)} onDelete={() => onDelete(t)}>
+                        <TxRow t={t} currency={currency} onView={setViewing} onEdit={onEdit} onDelete={onDelete} hideAmounts={hideAmounts} />
+                      </SwipeRow>
                     ))}
                   </div>
                 </div>

@@ -8,9 +8,9 @@ import { usePending } from './hooks/usePending'
 import Dashboard from './components/Dashboard'
 import TransactionList from './components/TransactionList'
 import TransactionForm from './components/TransactionForm'
-import Debts from './components/Debts'
 import DebtForm from './components/DebtForm'
-import Goals from './components/Goals'
+import Plan from './components/Plan'
+import Onboarding from './components/Onboarding'
 import Settings from './components/Settings'
 import PendingInbox from './components/PendingInbox'
 import AppLock from './components/AppLock'
@@ -21,19 +21,20 @@ import { buildSettlement, settlementFor, openingBalance } from './lib/settlement
 import { monthKey, todayISO } from './lib/format'
 import { resolveClock } from './lib/calendar'
 import { isNative, nativeSyncReminders, nativeWriteBackup } from './lib/native'
-import { isSeedBannerVisible, markDataModified, makeTransaction, exportBackup } from './lib/storage'
+import { isSeedBannerVisible, isDataModified, markDataModified, makeTransaction, exportBackup } from './lib/storage'
 import { processDueRecurring } from './lib/recurring'
 import {
-  IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconSystem, IconUsers, IconTarget, IconEye, IconEyeOff,
+  IconHome, IconList, IconChart, IconSettings, IconPlus, IconSun, IconMoon, IconSystem, IconTarget, IconEye, IconEyeOff,
 } from './components/icons'
 
 const TABS = [
   { id: 'dashboard', label: 'Home', icon: IconHome },
   { id: 'transactions', label: 'History', icon: IconList },
-  { id: 'goals', label: 'Goals', icon: IconTarget },
-  { id: 'debts', label: 'Debts', icon: IconUsers },
-  { id: 'settings', label: 'Settings', icon: IconSettings },
+  { id: 'plan', label: 'Plan', icon: IconTarget },
+  { id: 'settings', label: 'More', icon: IconSettings },
 ]
+const ONBOARDED_KEY = 'ledger.onboarded.v1'
+function wasOnboarded() { try { return localStorage.getItem(ONBOARDED_KEY) === '1' } catch { return true } }
 
 export default function App() {
   const tx = useTransactions()
@@ -45,6 +46,8 @@ export default function App() {
   const pending = usePending()
 
   const [tab, setTab] = useState('dashboard')
+  const [planTab, setPlanTab] = useState('goals')
+  const [onboard, setOnboard] = useState(() => !wasOnboarded() && !isDataModified())
   const [month, setMonth] = useState(() => monthKey(todayISO()))
   const [txForm, setTxForm] = useState({ open: false, editing: null })
   const [debtForm, setDebtForm] = useState({ open: false, editing: null })
@@ -189,11 +192,6 @@ export default function App() {
     [pending.pending, trackIncome]
   )
 
-  // Apply the visual style (classic / liquid glass) app-wide
-  useEffect(() => {
-    document.documentElement.setAttribute('data-style', settings.dashboard?.style === 'classic' ? 'classic' : 'glass')
-  }, [settings.dashboard?.style])
-
   function doReveal() {
     setHideAmounts(false)
     update({ hideAmounts: false })
@@ -276,7 +274,7 @@ export default function App() {
   function toggleDebt(id) { dbt.toggleSettled(id); notify('Updated') }
 
   function fabAdd() {
-    if (tab === 'debts') openAddDebt()
+    if (tab === 'plan' && planTab === 'debts') openAddDebt()
     else openAddTx()
   }
 
@@ -315,10 +313,21 @@ export default function App() {
     }
   }
 
+  function finishOnboarding({ userName, currency, trackIncome: ti, monthlyBudget, clean }) {
+    update({ userName, currency, trackIncome: ti, monthlyBudget })
+    if (clean) clearEverything()
+    try { localStorage.setItem(ONBOARDED_KEY, '1') } catch {}
+    setOnboard(false)
+    notify(userName ? `Welcome, ${userName}!` : 'All set — happy tracking!')
+  }
+
   const clock = resolveClock(settings)
 
   return (
     <div className="app">
+      {onboard && !locked && (
+        <Onboarding defaultCurrency={settings.currency} hasDemoData={showBanner} onFinish={finishOnboarding} />
+      )}
       {locked && settings.appLock?.enabled && (
         <AppLock appLock={settings.appLock} onUnlock={() => setLocked(false)} />
       )}
@@ -338,7 +347,7 @@ export default function App() {
           </div>
           <div>
             <div className="brand-name">Ledger</div>
-            <div className="brand-sub">Daily finance tracker</div>
+            <div className="brand-sub">{trackIncome ? 'Income & expenses' : 'Expense tracker'}</div>
           </div>
           <div className="spacer" />
 
@@ -354,7 +363,7 @@ export default function App() {
           </nav>
 
           <button className="btn btn-primary btn-sm desktop-add" onClick={fabAdd} style={{ marginLeft: 6 }}>
-            <IconPlus width={13} height={13} /> Add
+            <IconPlus width={13} height={13} /> {trackIncome ? 'Add' : 'Add expense'}
           </button>
           <button
             className="icon-btn"
@@ -402,10 +411,9 @@ export default function App() {
           <Dashboard
             transactions={viewTx}
             trackIncome={trackIncome}
-            style={settings.dashboard?.style || 'glass'}
             layout={settings.dashboard?.widgets}
             onLayoutChange={(widgets) => update({ dashboard: { ...settings.dashboard, widgets } })}
-            onStyleChange={(st) => update({ dashboard: { ...settings.dashboard, style: st } })}
+            userName={settings.userName}
             settlements={stl.settlements}
             currency={settings.currency}
             monthlyBudget={settings.monthlyBudget || 0}
@@ -434,25 +442,22 @@ export default function App() {
             hideAmounts={hideAmounts}
           />
         )}
-        {tab === 'goals' && (
-          <Goals
-            goals={goals.goals}
-            currency={settings.currency}
-            onAdd={goals.addGoal}
-            onUpdate={goals.updateGoal}
-            onContribute={goals.contributeToGoal}
-            onDelete={goals.deleteGoal}
-          />
-        )}
-        {tab === 'debts' && (
-          <Debts
-            debts={dbt.debts}
-            currency={settings.currency}
-            onAdd={openAddDebt}
-            onToggle={toggleDebt}
-            onEdit={openEditDebt}
-            onDelete={deleteDebt}
-            hideAmounts={hideAmounts}
+        {tab === 'plan' && (
+          <Plan
+            section={planTab}
+            onSection={setPlanTab}
+            goalsProps={{
+              goals: goals.goals, currency: settings.currency,
+              onAdd: goals.addGoal, onUpdate: goals.updateGoal, onContribute: goals.contributeToGoal, onDelete: goals.deleteGoal,
+            }}
+            debtsProps={{
+              debts: dbt.debts, currency: settings.currency, hideAmounts,
+              onAdd: openAddDebt, onToggle: toggleDebt, onEdit: openEditDebt, onDelete: deleteDebt, onRepay: (id, amt) => { dbt.addRepayment(id, amt); notify('Payment recorded') },
+            }}
+            billsProps={{
+              transactions: viewTx, currency: settings.currency, hideAmounts,
+              onEdit: openEditTx, onAdd: openAddTx, onUpdate: (id, patch) => { tx.updateTransaction(id, patch); notify('Bill updated') },
+            }}
           />
         )}
         {tab === 'settings' && (
@@ -485,15 +490,14 @@ export default function App() {
         onOpenForm={(item) => openAddTx(item)}
       />
 
-      {/* Mobile bottom navigation (6 items including FAB) */}
+      {/* Mobile floating tab bar */}
       <nav className="botnav" aria-label="Primary mobile">
         <div className="botnav-inner">
-          <button className={'nav-item' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}><IconHome width={18} height={18} />Home</button>
-          <button className={'nav-item' + (tab === 'transactions' ? ' active' : '')} onClick={() => setTab('transactions')}><IconList width={18} height={18} />History</button>
-          <button className="fab" onClick={fabAdd} aria-label="Add"><IconPlus width={22} height={22} /></button>
-          <button className={'nav-item' + (tab === 'goals' ? ' active' : '')} onClick={() => setTab('goals')}><IconTarget width={18} height={18} />Goals</button>
-          <button className={'nav-item' + (tab === 'debts' ? ' active' : '')} onClick={() => setTab('debts')}><IconUsers width={18} height={18} />Debts</button>
-          <button className={'nav-item' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}><IconSettings width={18} height={18} />More</button>
+          <button className={'nav-item' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}><IconHome width={20} height={20} />Home</button>
+          <button className={'nav-item' + (tab === 'transactions' ? ' active' : '')} onClick={() => setTab('transactions')}><IconList width={20} height={20} />History</button>
+          <button className="fab" onClick={fabAdd} aria-label={trackIncome ? 'Add transaction' : 'Add expense'}><IconPlus width={24} height={24} /></button>
+          <button className={'nav-item' + (tab === 'plan' ? ' active' : '')} onClick={() => setTab('plan')}><IconTarget width={20} height={20} />Plan</button>
+          <button className={'nav-item' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}><IconSettings width={20} height={20} />More</button>
         </div>
       </nav>
 

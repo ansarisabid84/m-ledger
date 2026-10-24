@@ -499,6 +499,8 @@ export default function Settings({
   const [showReconvert, setShowReconvert] = useState(false)
   const [showCatBudgets, setShowCatBudgets] = useState(false)
   const [importPlan, setImportPlan] = useState(null)
+  const [grp, setGrp] = useState('general')
+  const show = (g) => grp === g
 
   useEffect(() => {
     getPermission().then(setPerm)
@@ -659,9 +661,16 @@ export default function Settings({
   return (
     <div className="section">
       <div>
-        <h2 className="page-title">Settings</h2>
+        <div className="eyebrow">Preferences</div>
+        <h2 className="page-title">More</h2>
+      </div>
+      <div className="snav" role="tablist" aria-label="Settings sections">
+        {[['general', '⚙️ General'], ['security', '🔒 Security'], ['alerts', '🔔 Alerts'], ['data', '💾 Data'], ['about', 'ℹ️ About']].map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={grp === id} className={'chip' + (grp === id ? ' active' : '')} onClick={() => setGrp(id)}>{label}</button>
+        ))}
       </div>
 
+      {show('general') && (<>
       {/* Currency */}
       <div className="card card-pad">
         <div className="card-head"><span className="card-title">Currency</span></div>
@@ -690,7 +699,11 @@ export default function Settings({
 
       {/* Tracking mode & appearance */}
       <div className="card card-pad">
-        <div className="card-head"><span className="card-title">Tracking &amp; appearance</span></div>
+        <div className="card-head"><span className="card-title">Tracking mode</span></div>
+        <div className="field" style={{ marginBottom: 14 }}>
+          <label className="label">Your name</label>
+          <input className="input" placeholder="Shown in the Home greeting" maxLength={30} value={settings.userName || ''} onChange={(e) => updateSettings({ userName: e.target.value })} />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Track income</div>
@@ -700,13 +713,7 @@ export default function Settings({
           </div>
           <Toggle checked={settings.trackIncome !== false} onChange={(v) => updateSettings({ trackIncome: v })} label="Track income" />
         </div>
-        <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Look &amp; feel</div>
-        <div className="seg" style={{ width: '100%' }}>
-          <button style={{ flex: 1 }} className={settings.dashboard?.style === 'classic' ? 'active' : ''} onClick={() => updateSettings({ dashboard: { ...settings.dashboard, style: 'classic' } })}>Classic</button>
-          <button style={{ flex: 1 }} className={settings.dashboard?.style !== 'classic' ? 'active' : ''} onClick={() => updateSettings({ dashboard: { ...settings.dashboard, style: 'glass' } })}>Liquid glass</button>
-        </div>
-        <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>Reorder or hide dashboard widgets with the ⚙︎ button on the Home screen.</p>
+        <p className="muted" style={{ fontSize: 11.5, margin: '12px 0 0' }}>Reorder or hide dashboard widgets with the ⚙︎ button on the Home screen.</p>
       </div>
 
       {/* Monthly budget */}
@@ -783,9 +790,13 @@ export default function Settings({
       {/* Clock & Calendar */}
       <ClockCalendarSection settings={settings} updateSettings={updateSettings} />
 
+      </>)}
+      {show('security') && (<>
       {/* App Lock */}
       <AppLockSection lock={settings.appLock || { enabled: false, pin: null }} updateSettings={updateSettings} notify={notify} guardAction={guardAction} />
 
+      </>)}
+      {show('alerts') && (<>
       {/* SMS / Notification detection */}
       <div className="card card-pad">
         <div className="card-head">
@@ -923,6 +934,8 @@ export default function Settings({
         />
       )}
 
+      </>)}
+      {show('data') && (<>
       {/* Export / data */}
       <div className="card card-pad">
         <div className="card-head"><span className="card-title">Export</span></div>
@@ -1030,6 +1043,8 @@ export default function Settings({
         )}
       </div>
 
+      </>)}
+
       {pendingAction && (
         <PinGateModal
           storedPin={settings.appLock?.pin}
@@ -1038,6 +1053,7 @@ export default function Settings({
         />
       )}
 
+      {show('about') && (
       <div className="card card-pad">
         <div className="card-head">
           <span className="card-title">About Ledger</span>
@@ -1102,6 +1118,7 @@ export default function Settings({
           . All rights reserved.
         </p>
       </div>
+      )}
     </div>
   )
 }

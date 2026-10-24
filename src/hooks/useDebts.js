@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { todayISO } from '../lib/format'
 import {
-  loadDebts, saveDebts, makeDebt,
+  loadDebts, saveDebts, makeDebt, newId,
   loadSettlements, saveSettlements, seedIfEmpty,
 } from '../lib/storage'
 
@@ -47,11 +48,27 @@ export function useDebts() {
         cur.map((d) =>
           d.id === id
             ? d.status === 'open'
-              ? { ...d, status: 'settled', settledDate: new Date().toISOString().slice(0, 10) }
+              ? { ...d, status: 'settled', settledDate: todayISO() }
               : { ...d, status: 'open', settledDate: null }
             : d
         )
       )
+      saveDebts(next)
+      return next
+    })
+  }, [])
+
+  // Record a partial (or final) payment; the record settles itself once fully paid.
+  const addRepayment = useCallback((id, amount) => {
+    setDebts((cur) => {
+      const next = sortDebts(cur.map((d) => {
+        if (d.id !== id) return d
+        const repayments = [...(d.repayments || []), { id: newId(), amount: Number(amount), date: todayISO() }]
+        const paid = repayments.reduce((s, r) => s + r.amount, 0)
+        return paid >= d.amount - 0.005
+          ? { ...d, repayments, status: 'settled', settledDate: todayISO() }
+          : { ...d, repayments }
+      }))
       saveDebts(next)
       return next
     })
@@ -67,7 +84,7 @@ export function useDebts() {
 
   const replaceDebts = useCallback((list) => persist(list), [persist])
 
-  return { debts, addDebt, updateDebt, toggleSettled, deleteDebt, replaceDebts }
+  return { debts, addDebt, updateDebt, toggleSettled, addRepayment, deleteDebt, replaceDebts }
 }
 
 export function useSettlements() {

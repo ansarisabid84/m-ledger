@@ -1,0 +1,1 @@
+Private, offline expense tracker with budgets, bills, goals and a glass UI.

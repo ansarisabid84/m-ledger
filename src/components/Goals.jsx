@@ -207,7 +207,7 @@ export default function Goals({ goals, currency, onAdd, onUpdate, onContribute, 
                       )}
                     </div>
                     <div style={{ margin: '6px 0 4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginBottom: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2px 10px', fontSize: 12, color: 'var(--ink-soft)', marginBottom: 6 }}>
                         <span>{fmtMoney(g.savedAmount, currency)} saved</span>
                         <span>{Math.round(pct)}% · {fmtMoney(g.targetAmount, currency)}</span>
                       </div>

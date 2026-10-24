@@ -10,49 +10,9 @@ import {
   gregorianCalendarGrid,
 } from '../lib/calendar'
 import { CategoryDonut, TrendChart, MethodChart } from './Charts'
-import MonthNav from './MonthNav'
-import { IconUp, IconDown, IconWallet, IconLock, IconUndo, IconCheck, IconBulb, IconCalendar, IconClose, IconFilter } from './icons'
-
-// ─── Filter sheet ────────────────────────────────────────────────────────────
-
-function FilterSheet({ months, value, onChange, onClose }) {
-  const overlayRef = useRef(null)
-  return (
-    <div
-      className="modal-overlay"
-      ref={overlayRef}
-      onMouseDown={(e) => e.target === overlayRef.current && onClose()}
-      style={{ zIndex: 200 }}
-    >
-      <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 360 }}>
-        <div className="modal-grab" />
-        <div className="modal-head">
-          <h3 style={{ fontSize: 15 }}>Filter period</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close"><IconClose /></button>
-        </div>
-        <button
-          className={'btn btn-block' + (value === 'all' ? ' btn-primary' : '')}
-          style={{ marginBottom: 10 }}
-          onClick={() => { onChange('all'); onClose() }}
-        >
-          All time
-        </button>
-        <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {months.map((m) => (
-            <button
-              key={m}
-              className={'btn' + (value === m ? ' btn-primary' : ' btn-ghost')}
-              style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-              onClick={() => { onChange(m); onClose() }}
-            >
-              {monthLabel(m)}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
+import MonthPager from './MonthPager'
+import { useSwipe } from '../hooks/useSwipe'
+import { IconUp, IconDown, IconWallet, IconLock, IconUndo, IconCheck, IconBulb, IconCalendar, IconClose } from './icons'
 
 // ─── Calendar popup ──────────────────────────────────────────────────────────
 
@@ -79,17 +39,23 @@ function CalendarPopup({ clockCountry, clockTimezone, clockFormat, onClose }) {
   const overlayRef = useRef(null)
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+  const [slide, setSlide] = useState('') // 'next' | 'prev' — drives the slide-in animation
   function prevMonth() {
+    setSlide('prev'); setSelectedDate(null)
     if (viewMonth === 1) { setViewMonth(12); setViewYear((y) => y - 1) }
     else setViewMonth((m) => m - 1)
   }
   function nextMonth() {
+    setSlide('next'); setSelectedDate(null)
     if (viewMonth === 12) { setViewMonth(1); setViewYear((y) => y + 1) }
     else setViewMonth((m) => m + 1)
   }
+  // swipe left = next month, swipe right = previous month
+  const swipe = useSwipe({ onLeft: nextMonth, onRight: prevMonth, threshold: 45 })
   function goToday() {
     if (useBS && bsNow) { setViewYear(bsNow.year); setViewMonth(bsNow.month) }
     else { setViewYear(year); setViewMonth(month + 1) }
+    setSlide('')
     setSelectedDate(null)
   }
 
@@ -127,7 +93,7 @@ function CalendarPopup({ clockCountry, clockTimezone, clockFormat, onClose }) {
 
         {/* Month nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <button className="btn btn-ghost btn-sm" onClick={prevMonth} style={{ padding: '4px 10px', fontSize: 16, lineHeight: 1 }}>‹</button>
+          <button className="btn btn-ghost btn-sm" onClick={prevMonth} style={{ padding: '6px 14px', fontSize: 18, lineHeight: 1 }}>‹</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontWeight: 700, fontSize: 13 }}>{monthName} {viewYear}{useBS ? ' BS' : ''}</span>
             <button
@@ -138,9 +104,10 @@ function CalendarPopup({ clockCountry, clockTimezone, clockFormat, onClose }) {
               Today
             </button>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={nextMonth} style={{ padding: '4px 10px', fontSize: 16, lineHeight: 1 }}>›</button>
+          <button className="btn btn-ghost btn-sm" onClick={nextMonth} style={{ padding: '6px 14px', fontSize: 18, lineHeight: 1 }}>›</button>
         </div>
 
+        <div {...swipe} style={{ touchAction: 'pan-y' }}>
         {/* Day headers */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
           {DAYS.map((d) => (
@@ -148,7 +115,8 @@ function CalendarPopup({ clockCountry, clockTimezone, clockFormat, onClose }) {
           ))}
         </div>
 
-        {/* Calendar grid */}
+        {/* Calendar grid — keyed by month so the slide animation replays on every change */}
+        <div key={`${viewYear}-${viewMonth}`} className={slide === 'next' ? 'anim-next' : slide === 'prev' ? 'anim-prev' : ''}>
         {weeks.map((week, wi) => (
           <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 2 }}>
             {week.map((cell, di) => {
@@ -192,8 +160,8 @@ function CalendarPopup({ clockCountry, clockTimezone, clockFormat, onClose }) {
                     else setSelectedDate({ date: cell.date, diff })
                   }}
                   style={{
-                    textAlign: 'center', fontSize: 11, fontWeight: isToday ? 700 : 400,
-                    padding: '5px 2px', borderRadius: 6,
+                    textAlign: 'center', fontSize: 13, fontWeight: isToday ? 700 : 500,
+                    padding: '9px 2px', borderRadius: 12,
                     background: bg, color,
                     border: 'none', cursor: isAdjacentMonth ? 'default' : 'pointer',
                     opacity: isAdjacentMonth ? 0.4 : 1,
@@ -206,6 +174,9 @@ function CalendarPopup({ clockCountry, clockTimezone, clockFormat, onClose }) {
             })}
           </div>
         ))}
+        </div>
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 6 }}>Swipe left / right to change month</div>
 
         {/* Selected date info — days before/after today */}
         {selectedDate && selectedDate.diff !== 0 && (
@@ -595,7 +566,7 @@ function UpcomingCard({ transactions, currency, hideAmounts }) {
 
 // ─── Customize sheet ─────────────────────────────────────────────────────────
 
-function CustomizeSheet({ layout, trackIncome, style, onLayoutChange, onStyleChange, onClose }) {
+function CustomizeSheet({ layout, trackIncome, onLayoutChange, onClose }) {
   const overlayRef = useRef(null)
   function move(i, dir) {
     const j = i + dir
@@ -614,12 +585,6 @@ function CustomizeSheet({ layout, trackIncome, style, onLayoutChange, onStyleCha
         <div className="modal-head">
           <h3 style={{ fontSize: 16 }}>Customize dashboard</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><IconClose /></button>
-        </div>
-
-        <label className="label">Look &amp; feel</label>
-        <div className="seg" style={{ width: '100%', marginBottom: 14 }}>
-          <button style={{ flex: 1 }} className={style === 'classic' ? 'active' : ''} onClick={() => onStyleChange('classic')}>Classic</button>
-          <button style={{ flex: 1 }} className={style === 'glass' ? 'active' : ''} onClick={() => onStyleChange('glass')}>Liquid glass</button>
         </div>
 
         <label className="label">Widgets — reorder or hide</label>
@@ -658,11 +623,10 @@ export default function Dashboard({
   transactions, settlements, currency, monthlyBudget, categoryBudgets,
   month, onMonthChange, onAdd, onSettle, onUnsettle,
   hideAmounts, clockCountry, clockTimezone, clockFormat,
-  trackIncome = true, layout: savedLayout, style = 'glass', onLayoutChange, onStyleChange,
+  trackIncome = true, layout: savedLayout, onLayoutChange, userName,
 }) {
   const months = useMemo(() => listMonths(transactions), [transactions])
   const scoped = useMemo(() => filterByMonth(transactions, month), [transactions, month])
-  const [showFilter, setShowFilter] = useState(false)
   const [showCustomize, setShowCustomize] = useState(false)
 
   const t = useMemo(() => totals(scoped), [scoped])
@@ -884,49 +848,41 @@ export default function Dashboard({
     }
   }
 
-  return (
-    <div className="section">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-        <div>
-          <h2 className="page-title">Dashboard</h2>
-          {month !== 'all' && (
-            <div style={{ fontSize: 11, color: 'var(--brand)', fontWeight: 600, marginTop: 2 }}>
-              {monthLabel(month)}
-            </div>
-          )}
-        </div>
+  const hour = new Date().getHours()
+  const greeting = hour < 5 ? 'Late night' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
-        {/* Clock + filter + customize — same height, visually aligned */}
-        <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
-          <LiveClock clockCountry={clockCountry} clockTimezone={clockTimezone} clockFormat={clockFormat} />
-          <button
-            className="icon-btn dash-btn"
-            onClick={() => setShowFilter(true)}
-            aria-label="Filter by period"
-            title={month === 'all' ? 'All time' : monthLabel(month)}
-            style={{ position: 'relative' }}
-          >
-            <IconFilter width={18} height={18} />
-            {month !== 'all' && (
-              <span style={{
-                position: 'absolute', top: -3, right: -3, width: 8, height: 8,
-                borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--bg)',
-              }} />
-            )}
-          </button>
-          <button className="icon-btn dash-btn" onClick={() => setShowCustomize(true)} aria-label="Customize dashboard" title="Customize dashboard">
-            <span style={{ fontSize: 17, lineHeight: 1 }}>⚙︎</span>
+  // swipe: left = newer month, right = older month (months are sorted newest-first)
+  const mIdx = months.indexOf(month)
+  const swipe = useSwipe({
+    onLeft: () => { if (month !== 'all' && mIdx > 0) onMonthChange(months[mIdx - 1]) },
+    onRight: () => { if (month !== 'all' && mIdx < months.length - 1) onMonthChange(months[mIdx + 1]) },
+  })
+
+  return (
+    <div className="section" {...swipe}>
+      <div className="greet">
+        <div>
+          <div className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+          <h2>{greeting}{userName ? `, ${userName}` : ''}</h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
+          <button className="icon-btn" onClick={() => setShowCustomize(true)} aria-label="Customize dashboard" title="Customize dashboard" style={{ height: 'auto', minHeight: 44 }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>⚙︎</span>
           </button>
         </div>
       </div>
 
-      {showFilter && (
-        <FilterSheet months={months} value={month} onChange={onMonthChange} onClose={() => setShowFilter(false)} />
-      )}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 150px', minWidth: 0 }}>
+          <MonthPager months={months} value={month} onChange={onMonthChange} />
+        </div>
+        <LiveClock clockCountry={clockCountry} clockTimezone={clockTimezone} clockFormat={clockFormat} />
+      </div>
+
       {showCustomize && (
         <CustomizeSheet
-          layout={layout} trackIncome={trackIncome} style={style}
-          onLayoutChange={onLayoutChange} onStyleChange={onStyleChange}
+          layout={layout} trackIncome={trackIncome}
+          onLayoutChange={onLayoutChange}
           onClose={() => setShowCustomize(false)}
         />
       )}

@@ -1,0 +1,33 @@
+Learn how to use Ledger, a private, offline expense tracker with a liquid-glass design. In about 2.5 minutes you'll see how to set up the app, log expenses, read your dashboard, plan ahead with goals, debts and bills, and keep your data safe. No account, no ads, no cloud.
+
+📲 GET LEDGER FREE ON GOOGLE PLAY
+https://play.google.com/store/apps/details?id=com.sabid.ledgerapp
+
+⏱ CHAPTERS
+0:00 Welcome to Ledger
+0:15 Quick setup (name, currency, expenses-only mode, budget)
+0:32 Your Home dashboard (budget, daily allowance, forecast)
+0:51 Add an expense
+1:09 History, search and the spending calendar
+1:26 World clock and swipeable calendar
+1:36 Customize your dashboard
+1:48 Plan: goals, debts and bills
+2:04 Settings, privacy and backups
+2:21 Start tracking today
+
+✨ WHAT YOU'LL LEARN
+• Set up Ledger in under a minute and choose expenses-only or income + expenses
+• See how much you can safely spend today and your month-end forecast
+• Log an expense in seconds with category tiles and quick-add chips
+• Find anything with search, filters and the heat-map spending calendar
+• Swipe a transaction to edit or delete it; swipe to change month
+• Reorder and hide dashboard widgets to design your own Home screen
+• Track savings goals, money lent and borrowed (with part payments) and recurring bills
+• Protect your data with app lock, hide-amounts, and automatic backups
+
+🔒 PRIVATE BY DESIGN
+All your data stays on your device. Back up and restore with a JSON file any time.
+
+👍 If this helped, like the video and subscribe for more tips.
+
+#expensetracker #budgetapp #personalfinance #moneymanagement #offlineapp #ledger

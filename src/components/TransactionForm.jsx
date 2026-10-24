@@ -5,6 +5,12 @@ import { fetchRates, toBase, staticRate, RATE_CURRENCIES } from '../lib/rates'
 import { nextDueDate } from '../lib/recurring'
 import { IconClose, IconRepeat } from './icons'
 
+function isoDaysAgo(n) {
+  const d = new Date(todayISO() + 'T12:00:00')
+  d.setDate(d.getDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+
 const FREQUENCIES = [
   { id: 'daily', label: 'Daily' },
   { id: 'weekly', label: 'Weekly' },
@@ -165,10 +171,10 @@ export default function TransactionForm({ initial, currency, onSave, onClose, tr
 
         <div className="field" style={{ marginBottom: 13 }}>
           <label className="label">Category</label>
-          <div className="chips">
+          <div className="tile-grid">
             {categoriesFor(type).map((c) => (
-              <button key={c.id} className={'chip' + (category === c.id ? ' active' : '')} onClick={() => setCategory(c.id)} type="button">
-                <span>{c.icon}</span> {c.label}
+              <button key={c.id} className={'tile' + (category === c.id ? ' active' : '')} onClick={() => setCategory(c.id)} type="button">
+                <span className="tile-ico">{c.icon}</span>{c.label}
               </button>
             ))}
           </div>
@@ -187,6 +193,10 @@ export default function TransactionForm({ initial, currency, onSave, onClose, tr
 
         <div className="field" style={{ marginBottom: 10 }}>
           <label className="label">Date</label>
+          <div className="chips" style={{ marginBottom: 6 }}>
+            <button type="button" className={'chip' + (date === todayISO() ? ' active' : '')} onClick={() => setDate(todayISO())}>Today</button>
+            <button type="button" className={'chip' + (date === isoDaysAgo(1) ? ' active' : '')} onClick={() => setDate(isoDaysAgo(1))}>Yesterday</button>
+          </div>
           <input
             className="input"
             type="date"

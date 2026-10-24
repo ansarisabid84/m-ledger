@@ -97,7 +97,7 @@ export default function PendingInbox({ pending, currency, onApprove, onReject, o
           className="btn btn-sm"
           onClick={() => setOpen(true)}
           style={{
-            position: 'fixed', bottom: 'calc(80px + env(safe-area-inset-bottom))', right: 14,
+            position: 'fixed', bottom: 'calc(104px + env(safe-area-inset-bottom))', right: 14,
             zIndex: 50, background: 'var(--expense)', color: '#fff', borderColor: 'var(--expense)',
             gap: 5, boxShadow: 'var(--shadow-lg)',
           }}
