@@ -36,7 +36,7 @@ npx cap add ios          # Mac only
 npm run cap:assets
 ```
 
-`appId` and `appName` live in `capacitor.config.ts` (currently `com.ledgerapp.finance` / `Ledger`). Change the `appId` to your own reverse-domain identifier **before** publishing.
+`appId` and `appName` live in `capacitor.config.ts` (currently `com.sabid.ledgerapp` / `Ledger`). Change the `appId` to your own reverse-domain identifier **before** publishing.
 
 ---
 
