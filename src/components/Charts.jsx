@@ -81,7 +81,7 @@ export function CategoryDonut({ data, currency, total, hideAmounts }) {
 }
 
 /* ---------------- Monthly trend (grouped bars) ---------------- */
-export function TrendChart({ data, currency, hideAmounts }) {
+export function TrendChart({ data, currency, hideAmounts, showIncome = true }) {
   return (
     <ResponsiveContainer width="100%" height={210}>
       <BarChart data={data} margin={{ top: 6, right: 4, left: -16, bottom: 0 }} barGap={4}>
@@ -111,7 +111,7 @@ export function TrendChart({ data, currency, hideAmounts }) {
             }
           />
         )}
-        <Bar dataKey="income" fill="var(--income)" radius={[5, 5, 0, 0]} maxBarSize={26} />
+        {showIncome && <Bar dataKey="income" fill="var(--income)" radius={[5, 5, 0, 0]} maxBarSize={26} />}
         <Bar dataKey="expense" fill="var(--expense)" radius={[5, 5, 0, 0]} maxBarSize={26} />
       </BarChart>
     </ResponsiveContainer>

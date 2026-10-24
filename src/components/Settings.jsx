@@ -26,8 +26,11 @@ async function download(filename, text, notifyFn) {
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  // revoking immediately can cancel the download in some browsers
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
 function Toggle({ checked, onChange, label }) {
@@ -378,25 +381,20 @@ function AutoBackupSection({ autoBackup, updateSettings, getBackupData, notify, 
       guardAction(() => updateSettings({ autoBackup: { ...autoBackup, enabled: false } }))
       return
     }
-    // Turning on: request storage permission on Android
-    if (platform === 'android') {
-      const granted = await requestStoragePermission()
-      if (!granted) {
-        notify('Storage permission denied — backup will not work')
-        return
-      }
-    }
+    // Turning on: ask for storage permission on Android, but don't refuse to enable —
+    // backups fall back to app-accessible folders when public storage is unavailable.
+    if (platform === 'android') await requestStoragePermission()
     updateSettings({ autoBackup: { ...autoBackup, enabled: true } })
   }
 
   async function runNow() {
     const { nativeWriteBackup } = await import('../lib/native')
-    const uri = await nativeWriteBackup(getBackupData(), folderName)
-    if (uri) {
+    const res = await nativeWriteBackup(getBackupData(), folderName)
+    if (res.ok) {
       updateSettings({ autoBackup: { ...autoBackup, lastBackupAt: Date.now() } })
-      notify('Backup saved')
+      notify(res.location === 'ExternalStorage' || res.location === 'Documents' ? `Backup saved (${res.location})` : `Backup saved in ${res.location}`)
     } else {
-      notify('Backup failed — check storage permissions')
+      notify(`Backup failed — ${res.error || 'check storage permissions'}`)
     }
   }
 
@@ -413,7 +411,7 @@ function AutoBackupSection({ autoBackup, updateSettings, getBackupData, notify, 
   }
 
   const locationNote = platform === 'android'
-    ? 'Saved to external storage — files survive app uninstall.'
+    ? 'Saved to shared storage when Android allows it (survives uninstall); otherwise to an app folder, which is removed if you uninstall. Use "Full backup" to keep a copy elsewhere.'
     : '⚠️ These files are inside the app sandbox. They will be deleted if you uninstall the app. To keep a safe copy, use "Full backup" above and save it to iCloud Drive or another location of your choice.'
 
   return (
@@ -500,6 +498,7 @@ export default function Settings({
   const [prevCurrency, setPrevCurrency] = useState(settings.currency)
   const [showReconvert, setShowReconvert] = useState(false)
   const [showCatBudgets, setShowCatBudgets] = useState(false)
+  const [importPlan, setImportPlan] = useState(null)
 
   useEffect(() => {
     getPermission().then(setPerm)
@@ -558,29 +557,61 @@ export default function Settings({
       expense: round(s.expense * rate),
       carryForward: round(s.carryForward * rate),
     })))
+    replaceGoals(goals.map((g) => ({ ...g, targetAmount: round(g.targetAmount * rate), savedAmount: round(g.savedAmount * rate) })))
+    const catB = Object.fromEntries(Object.entries(settings.categoryBudgets || {}).map(([k, v]) => [k, round(v * rate)]))
+    updateSettings({ monthlyBudget: round((settings.monthlyBudget || 0) * rate), categoryBudgets: catB })
     notify(`Amounts converted from ${prevCurrency} → ${settings.currency} (approx. rate)`)
     setShowReconvert(false)
   }
 
   function handleImport(e) {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
     const reader = new FileReader()
+    reader.onerror = () => notify('Could not read that file')
     reader.onload = () => {
+      let parsed
       try {
-        const parsed = parseImport(String(reader.result))
-        replaceAll(parsed.transactions)
-        if (parsed.debts) replaceDebts(parsed.debts)
-        if (parsed.settlements) replaceSettlements(parsed.settlements)
-        if (parsed.goals) replaceGoals(parsed.goals)
-        const extra = [parsed.debts && 'debts', parsed.settlements && 'settlements', parsed.goals && 'goals'].filter(Boolean)
-        notify(`Imported ${parsed.transactions.length} transactions${extra.length ? ' + ' + extra.join(' & ') : ''}`)
+        parsed = parseImport(String(reader.result))
       } catch {
-        notify('Import failed — invalid file')
+        notify('Import failed — not a valid Ledger file')
+        return
       }
+      if (!parsed.transactions.length && !parsed.debts?.length && !parsed.goals?.length) {
+        notify('Nothing to import — file has no valid entries')
+        return
+      }
+      setImportPlan(parsed)
     }
     reader.readAsText(file)
-    e.target.value = ''
+  }
+
+  function applyImport(mode) {
+    const parsed = importPlan
+    setImportPlan(null)
+    if (!parsed) return
+    if (mode === 'replace') {
+      replaceAll(parsed.transactions)
+      if (parsed.debts) replaceDebts(parsed.debts)
+      if (parsed.settlements) replaceSettlements(parsed.settlements)
+      if (parsed.goals) replaceGoals(parsed.goals)
+      if (parsed.settings) updateSettings(parsed.settings)
+    } else {
+      // merge: add anything not already present (matched by id)
+      const have = new Set(transactions.map((t) => t.id))
+      replaceAll([...transactions, ...parsed.transactions.filter((t) => !have.has(t.id))])
+      if (parsed.debts) {
+        const d = new Set(debts.map((x) => x.id))
+        replaceDebts([...debts, ...parsed.debts.filter((x) => !d.has(x.id))])
+      }
+      if (parsed.goals) {
+        const g = new Set(goals.map((x) => x.id))
+        replaceGoals([...goals, ...parsed.goals.filter((x) => !g.has(x.id))])
+      }
+    }
+    const extra = [parsed.debts && 'debts', parsed.settlements && mode === 'replace' && 'settlements', parsed.goals && 'goals'].filter(Boolean)
+    notify(`${mode === 'replace' ? 'Restored' : 'Merged'} ${parsed.transactions.length} transactions${extra.length ? ' + ' + extra.join(' & ') : ''}${parsed.skipped ? ` (${parsed.skipped} invalid skipped)` : ''}`)
   }
 
   async function askPermission() {
@@ -655,6 +686,27 @@ export default function Settings({
             </div>
           </div>
         )}
+      </div>
+
+      {/* Tracking mode & appearance */}
+      <div className="card card-pad">
+        <div className="card-head"><span className="card-title">Tracking &amp; appearance</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Track income</div>
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+              Turn off to log expenses only — no income entry, balances or settlements. Existing income entries are kept and reappear if you turn this back on.
+            </div>
+          </div>
+          <Toggle checked={settings.trackIncome !== false} onChange={(v) => updateSettings({ trackIncome: v })} label="Track income" />
+        </div>
+        <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Look &amp; feel</div>
+        <div className="seg" style={{ width: '100%' }}>
+          <button style={{ flex: 1 }} className={settings.dashboard?.style === 'classic' ? 'active' : ''} onClick={() => updateSettings({ dashboard: { ...settings.dashboard, style: 'classic' } })}>Classic</button>
+          <button style={{ flex: 1 }} className={settings.dashboard?.style !== 'classic' ? 'active' : ''} onClick={() => updateSettings({ dashboard: { ...settings.dashboard, style: 'glass' } })}>Liquid glass</button>
+        </div>
+        <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>Reorder or hide dashboard widgets with the ⚙︎ button on the Home screen.</p>
       </div>
 
       {/* Monthly budget */}
@@ -898,7 +950,7 @@ export default function Settings({
 
         <div className="card-head"><span className="card-title">Backup &amp; restore</span></div>
         <p className="muted" style={{ marginTop: 0, fontSize: 11.5 }}>
-          Full backup includes transactions, debts, settlements and settings — restore on any device.
+          Full backup includes transactions, debts, goals, settlements and settings — restore on any device. Your app-lock PIN is never included.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn" onClick={() => guardAction(() => download(`ledger-backup-${stamp}.json`, exportBackup({ transactions, debts, settlements, settings, goals }), notify))}>
@@ -909,6 +961,31 @@ export default function Settings({
           </button>
           <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={handleImport} />
         </div>
+
+        {importPlan && (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', padding: 24 }}
+            onMouseDown={(e) => e.target === e.currentTarget && setImportPlan(null)}
+          >
+            <div className="glass-dialog" style={{ background: 'var(--surface)', borderRadius: 18, padding: '24px 22px', maxWidth: 340, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Import this file?</h3>
+              <p style={{ margin: '0 0 6px', fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
+                Found <strong>{importPlan.transactions.length}</strong> transactions
+                {importPlan.debts ? `, ${importPlan.debts.length} debts` : ''}
+                {importPlan.goals ? `, ${importPlan.goals.length} goals` : ''}
+                {importPlan.skipped ? ` (${importPlan.skipped} invalid entries will be skipped)` : ''}.
+              </p>
+              <p style={{ margin: '0 0 16px', fontSize: 12, color: 'var(--ink-faint)', lineHeight: 1.5 }}>
+                You currently have {transactions.length} transactions. <strong>Replace</strong> overwrites your current data{importPlan.settings ? ' and settings' : ''}; <strong>Merge</strong> only adds entries you don&rsquo;t already have.
+              </p>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <button className="btn btn-primary" onClick={() => applyImport('merge')}>Merge with current data</button>
+                {importPlan.full && <button className="btn btn-danger" onClick={() => applyImport('replace')}>Replace everything</button>}
+                <button className="btn btn-ghost" onClick={() => setImportPlan(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isNative() && (
           <>

@@ -61,6 +61,7 @@ export function makeTransaction(data) {
     recurring: data.recurring
       ? { enabled: true, frequency: data.recurring.frequency || 'monthly', nextDate: data.recurring.nextDate || null }
       : null,
+    ...(data._fromRecurring ? { _fromRecurring: data._fromRecurring } : {}),
     createdAt: Date.now(),
   }
 }
@@ -112,6 +113,10 @@ export function saveSettlements(list) {
 const DEFAULT_SETTINGS = {
   currency: 'NPR',
   monthlyBudget: 0,
+  // false = expense-only mode: income entry, balances and settlements are hidden
+  // (stored income data is kept, just not shown).
+  trackIncome: true,
+  dashboard: { style: 'glass', widgets: null }, // widgets: null = default order
   autoCarryForward: false,
   smsDetection: false,
   hideAmounts: false,
@@ -147,6 +152,11 @@ export function loadSettings() {
     autoCarryForward: s.autoCarryForward ?? DEFAULT_SETTINGS.autoCarryForward,
     smsDetection: s.smsDetection ?? false,
     hideAmounts: s.hideAmounts ?? false,
+    trackIncome: s.trackIncome ?? true,
+    dashboard: {
+      style: s.dashboard?.style === 'classic' ? 'classic' : 'glass',
+      widgets: Array.isArray(s.dashboard?.widgets) ? s.dashboard.widgets : null,
+    },
     clockCountry: s.clockCountry ?? null,
     clockTimezone: s.clockTimezone ?? null,
     clockCurrency: s.clockCurrency ?? null,
@@ -197,37 +207,70 @@ export function exportDebtsCSV(list) {
 }
 
 // Full backup: everything needed to restore the app on another device.
+// The app-lock PIN is deliberately left out — backup files get shared and synced.
 export function exportBackup({ transactions, debts, settlements, settings, goals }) {
+  const { appLock, ...safeSettings } = settings || {}
   return JSON.stringify(
-    { app: 'ledger', version: 2, exportedAt: new Date().toISOString(), transactions, debts, settlements, settings, goals: goals || [] },
+    {
+      app: 'ledger', version: 3, full: true, exportedAt: new Date().toISOString(),
+      transactions, debts, settlements, settings: safeSettings, goals: goals || [],
+    },
     null,
     2
   )
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
 function normalizeTx(t) {
+  const amount = Number(t.amount)
+  if (!t || !Number.isFinite(amount) || amount <= 0) return null
+  if (t.type !== 'income' && t.type !== 'expense') return null
+  if (typeof t.date !== 'string' || !ISO_DATE.test(t.date.slice(0, 10))) return null
   return {
     id: t.id || uid(),
     type: t.type,
-    amount: Number(t.amount),
+    amount,
     category: t.category || (t.type === 'income' ? 'other_income' : 'other_expense'),
     method: t.method || 'cash',
-    date: t.date,
+    date: t.date.slice(0, 10),
     note: t.note || '',
+    recurring: t.recurring?.enabled
+      ? { enabled: true, frequency: t.recurring.frequency || 'monthly', nextDate: t.recurring.nextDate || null }
+      : null,
+    ...(t._fromRecurring ? { _fromRecurring: t._fromRecurring } : {}),
     createdAt: t.createdAt || Date.now(),
   }
 }
 
-// Returns { transactions, debts|null, settlements|null }.
+function normalizeGoal(g) {
+  const target = Number(g?.targetAmount)
+  if (!g || !g.name || !Number.isFinite(target) || target <= 0) return null
+  return {
+    id: g.id || uid(),
+    name: String(g.name),
+    targetAmount: target,
+    savedAmount: Math.max(0, Number(g.savedAmount) || 0),
+    icon: g.icon || '🎯',
+    color: g.color || '#5b6cf0',
+    deadline: g.deadline || null,
+    createdAt: g.createdAt || Date.now(),
+  }
+}
+
+// Returns { transactions, debts|null, settlements|null, goals|null, settings|null, full, skipped }.
+// `full` is true for complete backups (safe to replace everything); a bare
+// transactions export is merged instead so it can't wipe debts/goals.
 export function parseImport(text) {
   const data = JSON.parse(text)
   const txArr = Array.isArray(data) ? data : data.transactions
   if (!Array.isArray(txArr)) throw new Error('No transactions found in file.')
-  const transactions = txArr.filter((t) => t && t.amount != null && t.type && t.date).map(normalizeTx)
+  const transactions = txArr.map(normalizeTx).filter(Boolean)
+  let skipped = txArr.length - transactions.length
 
   const debts = Array.isArray(data.debts)
     ? data.debts
-        .filter((d) => d && d.amount != null && d.kind)
+        .filter((d) => d && Number.isFinite(Number(d.amount)) && (d.kind === 'borrowed' || d.kind === 'lent'))
         .map((d) => ({
           id: d.id || uid(),
           kind: d.kind,
@@ -241,6 +284,7 @@ export function parseImport(text) {
           createdAt: d.createdAt || Date.now(),
         }))
     : null
+  if (debts) skipped += data.debts.length - debts.length
 
   const settlements = Array.isArray(data.settlements)
     ? data.settlements.filter((s) => s && s.month).map((s) => ({
@@ -253,9 +297,18 @@ export function parseImport(text) {
       }))
     : null
 
-  const goals = Array.isArray(data.goals) ? data.goals : null
+  const goals = Array.isArray(data.goals) ? data.goals.map(normalizeGoal).filter(Boolean) : null
+  if (goals) skipped += data.goals.length - goals.length
 
-  return { transactions, debts, settlements, goals }
+  // Settings: never restore the app lock (the PIN isn't exported and a backup must not disable security).
+  let settings = null
+  if (data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings)) {
+    const { appLock, hideAmounts, ...rest } = data.settings
+    settings = rest
+  }
+
+  const full = !Array.isArray(data) && data.full === true || (!Array.isArray(data) && Array.isArray(data.debts) && Array.isArray(data.goals) && !!data.settings)
+  return { transactions, debts, settlements, goals, settings, full, skipped }
 }
 
 /* ---------------- savings goals ---------------- */

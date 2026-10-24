@@ -148,7 +148,7 @@ export async function requestStoragePermission() {
 // Human-readable description of where auto-backups are stored.
 export function backupLocationLabel(folderName = 'Backups') {
   const p = window.Capacitor?.getPlatform?.()
-  if (p === 'android') return `Internal storage / ${folderName}/`
+  if (p === 'android') return `${folderName}/ (internal storage, falls back to Documents)`
   if (p === 'ios') return `Files → On My iPhone → Ledger → ${folderName}/`
   return folderName
 }
@@ -156,36 +156,48 @@ export function backupLocationLabel(folderName = 'Backups') {
 // Write a full backup to the user's chosen folder, keeping exactly 2 versions:
 //   ledger-backup-current.json  — the latest
 //   ledger-backup-previous.json — the one before that
-// Android: External public storage (survives app uninstall, requires permission).
-// iOS: App Documents folder (visible in Files app via UIFileSharingEnabled, included in iCloud device backup).
-// Returns the file URI on success, null on failure.
+// Android: tries public storage first, then falls back to Documents and finally the
+// app's own external folder — newer Android versions block the first two without
+// special access, and a silent failure here used to mean "no backup at all".
+// iOS: App Documents folder (visible in Files app, included in device backups).
+// The new file is written to a temp name first, so a failed write can never destroy
+// the existing backups.
+// Returns { ok, uri, location, error }.
 export async function nativeWriteBackup(content, folderName = 'Backups') {
+  let Filesystem, Directory, Encoding
   try {
-    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
-    const platform = window.Capacitor?.getPlatform?.()
-    const directory = platform === 'android' ? Directory.ExternalStorage : Directory.Documents
-    const folder = (folderName || 'Backups').replace(/[\\:*?"<>|]/g, '').trim() || 'Backups'
-
-    try { await Filesystem.mkdir({ path: folder, directory, recursive: true }) } catch {}
-
-    const current  = `${folder}/ledger-backup-current.json`
-    const previous = `${folder}/ledger-backup-previous.json`
-
-    // Rotate: delete old previous, promote current → previous
-    try { await Filesystem.deleteFile({ path: previous, directory }) } catch {}
-    try { await Filesystem.rename({ from: current, to: previous, directory }) } catch {}
-
-    // Write new current
-    const res = await Filesystem.writeFile({
-      path: current,
-      data: content,
-      directory,
-      encoding: Encoding.UTF8,
-    })
-    return res.uri || current
-  } catch {
-    return null
+    ;({ Filesystem, Directory, Encoding } = await import('@capacitor/filesystem'))
+  } catch (e) {
+    return { ok: false, error: 'Filesystem unavailable' }
   }
+  const platform = window.Capacitor?.getPlatform?.()
+  const folder = (folderName || 'Backups').replace(/[\\/:*?"<>|]/g, '').trim() || 'Backups'
+  const candidates = platform === 'android'
+    ? [['ExternalStorage', Directory.ExternalStorage], ['Documents', Directory.Documents], ['App folder', Directory.External]]
+    : [['Documents', Directory.Documents]]
+
+  let lastError = ''
+  for (const [label, directory] of candidates) {
+    try {
+      try { await Filesystem.mkdir({ path: folder, directory, recursive: true }) } catch {}
+      const current = `${folder}/ledger-backup-current.json`
+      const previous = `${folder}/ledger-backup-previous.json`
+      const tmp = `${folder}/ledger-backup-new.tmp`
+
+      await Filesystem.writeFile({ path: tmp, data: content, directory, encoding: Encoding.UTF8, recursive: true })
+
+      // Rotate only after the new file is safely on disk
+      try { await Filesystem.deleteFile({ path: previous, directory }) } catch {}
+      try { await Filesystem.rename({ from: current, to: previous, directory }) } catch {}
+      await Filesystem.rename({ from: tmp, to: current, directory })
+
+      const { uri } = await Filesystem.getUri({ path: current, directory }).catch(() => ({ uri: current }))
+      return { ok: true, uri, location: label }
+    } catch (e) {
+      lastError = e?.message || String(e)
+    }
+  }
+  return { ok: false, error: lastError || 'Could not write to storage' }
 }
 
 /* ---------------- storage durability ----------------
@@ -198,6 +210,9 @@ const MIRROR_KEYS = [
   'ledger.settlements.v1',
   'ledger.settings.v1',
   'ledger.seeded.v1',
+  'ledger.goals.v1',
+  'ledger.pending.v1',
+  'ledger.modified.v1',
 ]
 
 export function mirrorWrite(key, value) {

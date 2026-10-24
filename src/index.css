@@ -650,3 +650,152 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   font-size: 9px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; flex-shrink: 0;
 }
 :root[data-theme='dark'] .tx-recurring { color: var(--brand); }
+
+/* ============================================================
+   Dashboard controls, undo toast, customize sheet
+   ============================================================ */
+.dash-btn {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0 12px; min-height: 48px;
+  display: flex; align-items: center; justify-content: center; align-self: stretch;
+}
+.toast-action {
+  margin-left: 12px; border: none; background: transparent; color: var(--brand);
+  font-weight: 700; font-size: 12px; padding: 0; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.cust-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.cust-row .icon-btn { width: 28px; height: 28px; font-size: 10px; padding: 0; }
+.cust-row .icon-btn:disabled { opacity: 0.3; pointer-events: none; }
+
+/* ============================================================
+   Liquid glass style  (html[data-style='glass'])
+   Translucent, blurred surfaces over a soft colour field with a
+   light specular edge. Applies app-wide; falls back to flat
+   translucent colours where backdrop-filter is unsupported.
+   ============================================================ */
+:root[data-style='glass'][data-theme='light'] {
+  --bg: #e9eef7;
+  --bg-grad:
+    radial-gradient(520px 420px at 8% 4%, rgba(91, 108, 240, 0.35), transparent 70%),
+    radial-gradient(560px 460px at 96% 14%, rgba(14, 159, 110, 0.32), transparent 70%),
+    radial-gradient(620px 520px at 60% 100%, rgba(229, 89, 78, 0.22), transparent 70%);
+  --surface: rgba(255, 255, 255, 0.52);
+  --surface-2: rgba(255, 255, 255, 0.38);
+  --surface-3: rgba(255, 255, 255, 0.55);
+  --border: rgba(255, 255, 255, 0.65);
+  --border-strong: rgba(255, 255, 255, 0.9);
+  --brand-tint: rgba(14, 159, 110, 0.14);
+  --income-tint: rgba(14, 159, 110, 0.14);
+  --expense-tint: rgba(229, 89, 78, 0.14);
+  --grid: rgba(22, 32, 28, 0.08);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+  --shadow-sm: 0 2px 10px rgba(40, 60, 110, 0.08);
+  --shadow: 0 8px 28px rgba(40, 60, 110, 0.14);
+  --shadow-lg: 0 16px 48px rgba(40, 60, 110, 0.22);
+}
+:root[data-style='glass'][data-theme='dark'] {
+  --bg: #0a0f14;
+  --bg-grad:
+    radial-gradient(520px 420px at 8% 4%, rgba(91, 108, 240, 0.38), transparent 70%),
+    radial-gradient(560px 460px at 96% 14%, rgba(31, 181, 133, 0.30), transparent 70%),
+    radial-gradient(620px 520px at 60% 100%, rgba(155, 91, 214, 0.28), transparent 70%);
+  --surface: rgba(255, 255, 255, 0.075);
+  --surface-2: rgba(255, 255, 255, 0.07);
+  --surface-3: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.26);
+  --brand-tint: rgba(31, 181, 133, 0.2);
+  --income-tint: rgba(31, 181, 133, 0.2);
+  --expense-tint: rgba(255, 107, 94, 0.2);
+  --grid: rgba(255, 255, 255, 0.08);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.25);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-style='glass'] {
+  --radius: 18px;
+  --radius-lg: 24px;
+  --radius-sm: 12px;
+}
+:root[data-style='glass'] body { background-attachment: fixed; }
+
+:root[data-style='glass'] .card,
+:root[data-style='glass'] .hero,
+:root[data-style='glass'] .stat,
+:root[data-style='glass'] .live-clock-btn,
+:root[data-style='glass'] .dash-btn,
+:root[data-style='glass'] .seed-banner,
+:root[data-style='glass'] .rc-tip {
+  -webkit-backdrop-filter: blur(22px) saturate(1.7);
+  backdrop-filter: blur(22px) saturate(1.7);
+  box-shadow: var(--glass-edge), var(--shadow);
+}
+:root[data-style='glass'] .hero {
+  box-shadow: var(--glass-edge), var(--shadow-lg);
+}
+/* a glossy sheen sweeping across the top of big cards */
+:root[data-style='glass'] .hero::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 38%);
+}
+:root[data-style='glass'] .topbar {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(1.8);
+  backdrop-filter: blur(26px) saturate(1.8);
+  box-shadow: var(--glass-edge);
+}
+:root[data-style='glass'] .botnav {
+  left: 12px; right: 12px; bottom: calc(8px + env(safe-area-inset-bottom));
+  border: 1px solid var(--border); border-radius: 26px;
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(28px) saturate(1.9);
+  backdrop-filter: blur(28px) saturate(1.9);
+  box-shadow: var(--glass-edge), var(--shadow-lg);
+  padding: 7px 8px;
+}
+:root[data-style='glass'] .nav-item.active { background: var(--surface-3); box-shadow: var(--glass-edge); }
+:root[data-style='glass'] .modal,
+:root[data-style='glass'] .glass-dialog {
+  background: var(--surface) !important;
+  -webkit-backdrop-filter: blur(34px) saturate(1.8);
+  backdrop-filter: blur(34px) saturate(1.8);
+  box-shadow: var(--glass-edge), var(--shadow-lg);
+}
+:root[data-style='glass'][data-theme='light'] .modal,
+:root[data-style='glass'][data-theme='light'] .glass-dialog { background: rgba(255, 255, 255, 0.72) !important; }
+:root[data-style='glass'][data-theme='dark'] .modal,
+:root[data-style='glass'][data-theme='dark'] .glass-dialog { background: rgba(24, 30, 38, 0.72) !important; }
+:root[data-style='glass'] .modal-overlay { background: rgba(10, 18, 30, 0.28); backdrop-filter: blur(6px); }
+:root[data-style='glass'] .btn,
+:root[data-style='glass'] .icon-btn,
+:root[data-style='glass'] .chip,
+:root[data-style='glass'] .input,
+:root[data-style='glass'] .select,
+:root[data-style='glass'] .seg {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+:root[data-style='glass'] .btn-primary,
+:root[data-style='glass'] .fab {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--brand) 82%, #fff) 0%, var(--brand) 60%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 6px 18px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+:root[data-style='glass'] .toast {
+  background: var(--surface); color: var(--ink); border: 1px solid var(--border);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+}
+:root[data-style='glass'] .toast-action { color: var(--brand-strong); }
+:root[data-style='glass'][data-theme='dark'] .toast-action { color: var(--brand); }
+@media (min-width: 900px) {
+  :root[data-style='glass'] .botnav { display: none; }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-style='glass'][data-theme='light'] { --surface: rgba(255, 255, 255, 0.9); }
+  :root[data-style='glass'][data-theme='dark'] { --surface: rgba(30, 38, 46, 0.92); }
+}

@@ -49,6 +49,7 @@ export default function App() {
   const [txForm, setTxForm] = useState({ open: false, editing: null })
   const [debtForm, setDebtForm] = useState({ open: false, editing: null })
   const [toast, setToast] = useState('')
+  const [undoTx, setUndoTx] = useState(null)
   const [showBanner, setShowBanner] = useState(() => isSeedBannerVisible())
   const [hideAmounts, setHideAmounts] = useState(() => settings.hideAmounts ?? false)
   const [showRevealPinGate, setShowRevealPinGate] = useState(false)
@@ -85,30 +86,48 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVisChange)
   }, [settings.appLock])
 
-  // Auto-backup — runs when the app comes to foreground and interval has elapsed
+  // Auto-backup — checks on start, on returning to the foreground and every few minutes.
+  // Everything it needs is read from a ref: the effect is only re-created when the schedule
+  // changes, so reading props/state directly would back up stale (start-of-session) data.
+  const backupDataRef = useRef(null)
+  backupDataRef.current = { transactions: tx.transactions, debts: dbt.debts, settlements: stl.settlements, settings, goals: goals.goals }
+  const backupRunning = useRef(false)
+  const backupErrorShown = useRef(false)
   useEffect(() => {
     if (!isNative()) return
     async function checkBackup() {
-      if (document.visibilityState !== 'visible') return
-      const ab = settings.autoBackup
+      if (document.visibilityState !== 'visible' || backupRunning.current) return
+      const cur = backupDataRef.current
+      const ab = cur.settings.autoBackup
       if (!ab?.enabled || !ab?.intervalHours) return
+      // don't back up before the stored data has finished loading (would overwrite a good backup with an empty one)
+      if (!cur.transactions.length && !cur.debts.length && !cur.goals.length) return
       const intervalMs = ab.intervalHours * 60 * 60 * 1000
       if (ab.lastBackupAt && Date.now() - ab.lastBackupAt < intervalMs) return
-      const content = exportBackup({ transactions: tx.transactions, debts: dbt.debts, settlements: stl.settlements, settings, goals: goals.goals })
-      const uri = await nativeWriteBackup(content, ab.folderName || 'Ledger')
-      if (uri) {
-        update({ autoBackup: { ...ab, lastBackupAt: Date.now() } })
-        notify('Auto-backup saved')
+      backupRunning.current = true
+      try {
+        const res = await nativeWriteBackup(exportBackup(cur), ab.folderName || 'Ledger')
+        if (res.ok) {
+          update({ autoBackup: { ...backupDataRef.current.settings.autoBackup, lastBackupAt: Date.now() } })
+          backupErrorShown.current = false
+          notify('Auto-backup saved')
+        } else if (!backupErrorShown.current) {
+          backupErrorShown.current = true
+          notify('Auto-backup failed — open Settings to check')
+        }
+      } finally {
+        backupRunning.current = false
       }
     }
     checkBackup()
+    const timer = setInterval(checkBackup, 5 * 60 * 1000)
     document.addEventListener('visibilitychange', checkBackup)
-    return () => document.removeEventListener('visibilitychange', checkBackup)
-  }, [settings.autoBackup]) // eslint-disable-line
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', checkBackup) }
+  }, [settings.autoBackup?.enabled, settings.autoBackup?.intervalHours, settings.autoBackup?.folderName, tx.transactions.length > 0]) // eslint-disable-line
 
   // Auto carry-forward
   useEffect(() => {
-    if (!settings.autoCarryForward || !tx.transactions.length) return
+    if (!settings.trackIncome || !settings.autoCarryForward || !tx.transactions.length) return
     const currentMonth = monthKey(todayISO())
     const unsettled = listMonths(tx.transactions).filter(
       (m) => m < currentMonth && !settlementFor(m, stl.settlements)
@@ -125,9 +144,12 @@ export default function App() {
     notify(`Auto-settled ${sorted.length} past month${sorted.length > 1 ? 's' : ''}`)
   }, [settings.autoCarryForward, tx.transactions.length, stl.settlements.length]) // eslint-disable-line
 
-  // Process due recurring transactions on startup
+  // Process due recurring transactions once, as soon as stored data has loaded
+  // (transactions are empty on the very first render, so this can't run on mount).
+  const recurringDone = useRef(false)
   useEffect(() => {
-    if (!tx.transactions.length) return
+    if (recurringDone.current || !tx.transactions.length) return
+    recurringDone.current = true
     const { toAdd, updatedSource } = processDueRecurring(tx.transactions)
     if (!toAdd.length && !updatedSource.length) return
 
@@ -153,9 +175,24 @@ export default function App() {
     } else if (updatedSource.length) {
       tx.replaceAll(updated)
     }
-  }, []) // eslint-disable-line — intentionally runs once on mount
+  }, [tx.transactions]) // eslint-disable-line
 
-  const months = useMemo(() => listMonths(tx.transactions), [tx.transactions])
+  const trackIncome = settings.trackIncome !== false
+  // Expense-only mode hides income rows everywhere without deleting them.
+  const viewTx = useMemo(
+    () => (trackIncome ? tx.transactions : tx.transactions.filter((t) => t.type !== 'income')),
+    [tx.transactions, trackIncome]
+  )
+  const months = useMemo(() => listMonths(viewTx), [viewTx])
+  const visiblePending = useMemo(
+    () => (trackIncome ? pending.pending : pending.pending.filter((p) => p.type !== 'income')),
+    [pending.pending, trackIncome]
+  )
+
+  // Apply the visual style (classic / liquid glass) app-wide
+  useEffect(() => {
+    document.documentElement.setAttribute('data-style', settings.dashboard?.style === 'classic' ? 'classic' : 'glass')
+  }, [settings.dashboard?.style])
 
   function doReveal() {
     setHideAmounts(false)
@@ -193,12 +230,12 @@ export default function App() {
     }
   }
 
-  function notify(msg) { setToast(msg) }
+  function notify(msg) { setUndoTx(null); setToast(msg) }
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(''), 2200)
+    const t = setTimeout(() => { setToast(''); setUndoTx(null) }, undoTx ? 5500 : 2200)
     return () => clearTimeout(t)
-  }, [toast])
+  }, [toast, undoTx])
 
   function touched() {
     if (showBanner) { markDataModified(); setShowBanner(false) }
@@ -213,7 +250,18 @@ export default function App() {
     else { tx.addTransaction(data); notify('Transaction added') }
     setTxForm({ open: false, editing: null, prefill: null })
   }
-  function deleteTx(t) { touched(); tx.deleteTransaction(t.id); notify('Transaction deleted') }
+  function deleteTx(t) {
+    touched()
+    tx.deleteTransaction(t.id)
+    setToast('Transaction deleted')
+    setUndoTx(t)
+  }
+  function restoreTx() {
+    if (!undoTx) return
+    tx.replaceAll([undoTx, ...tx.transactions])
+    setUndoTx(null)
+    setToast('Transaction restored')
+  }
 
   // Debt modal
   function openAddDebt() { setDebtForm({ open: true, editing: null }) }
@@ -242,12 +290,15 @@ export default function App() {
     tx.clearAll()
     dbt.replaceDebts([])
     stl.replaceSettlements([])
+    goals.replaceGoals([])
+    pending.clearPending()
     markDataModified()
     setShowBanner(false)
   }
 
   // Pending SMS inbox handlers
   function handlePendingApprove(item, addToPending) {
+    if (item.type === 'income' && !trackIncome) { pending.removePending(item.id); return }
     if (addToPending) {
       pending.addPending(item)
     } else {
@@ -349,7 +400,12 @@ export default function App() {
       <main className="shell">
         {tab === 'dashboard' && (
           <Dashboard
-            transactions={tx.transactions}
+            transactions={viewTx}
+            trackIncome={trackIncome}
+            style={settings.dashboard?.style || 'glass'}
+            layout={settings.dashboard?.widgets}
+            onLayoutChange={(widgets) => update({ dashboard: { ...settings.dashboard, widgets } })}
+            onStyleChange={(st) => update({ dashboard: { ...settings.dashboard, style: st } })}
             settlements={stl.settlements}
             currency={settings.currency}
             monthlyBudget={settings.monthlyBudget || 0}
@@ -367,7 +423,8 @@ export default function App() {
         )}
         {tab === 'transactions' && (
           <TransactionList
-            transactions={tx.transactions}
+            transactions={viewTx}
+            trackIncome={trackIncome}
             currency={settings.currency}
             month={month}
             onMonthChange={setMonth}
@@ -419,7 +476,7 @@ export default function App() {
 
       {/* SMS Pending Inbox (floating badge + modal) */}
       <PendingInbox
-        pending={pending.pending}
+        pending={visiblePending}
         currency={settings.currency}
         smsDetection={settings.smsDetection}
         onApprove={handlePendingApprove}
@@ -443,6 +500,8 @@ export default function App() {
       {txForm.open && (
         <TransactionForm
           initial={txForm.editing || txForm.prefill}
+          trackIncome={trackIncome}
+          history={tx.transactions}
           currency={settings.currency}
           onSave={saveTx}
           onClose={() => setTxForm({ open: false, editing: null, prefill: null })}
@@ -457,7 +516,12 @@ export default function App() {
         />
       )}
 
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+          {undoTx && <button className="toast-action" onClick={restoreTx}>Undo</button>}
+        </div>
+      )}
     </div>
   )
 }

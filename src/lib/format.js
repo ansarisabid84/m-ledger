@@ -77,3 +77,9 @@ export function relativeDay(iso) {
   if (diff > 1 && diff < 7) return `${diff} days ago`
   return fmtDate(iso)
 }
+
+// Local-calendar YYYY-MM-DD. Unlike toISOString() this never shifts the day in
+// time zones ahead of UTC (e.g. Nepal, India) when the Date is local midnight.
+export function localISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}

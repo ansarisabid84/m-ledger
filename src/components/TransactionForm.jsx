@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { categoriesFor, PAYMENT_METHODS, CURRENCIES } from '../lib/constants'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { categoriesFor, PAYMENT_METHODS, CURRENCIES, CATEGORY_MAP } from '../lib/constants'
 import { todayISO, currencySymbol } from '../lib/format'
 import { fetchRates, toBase, staticRate, RATE_CURRENCIES } from '../lib/rates'
 import { nextDueDate } from '../lib/recurring'
@@ -12,9 +12,9 @@ const FREQUENCIES = [
   { id: 'yearly', label: 'Yearly' },
 ]
 
-export default function TransactionForm({ initial, currency, onSave, onClose }) {
-  const editing = Boolean(initial)
-  const [type, setType] = useState(initial?.type || 'expense')
+export default function TransactionForm({ initial, currency, onSave, onClose, trackIncome = true, history = [] }) {
+  const editing = Boolean(initial?.id) // prefilled (e.g. from SMS) forms have no id and are new entries
+  const [type, setType] = useState(trackIncome ? (initial?.type || 'expense') : (initial?.type === 'income' && initial?.id ? 'income' : 'expense'))
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
   const [fromCurrency, setFromCurrency] = useState(currency)
   const [rates, setRates] = useState(null)
@@ -27,6 +27,29 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
   const [frequency, setFrequency] = useState(initial?.recurring?.frequency || 'monthly')
   const amountRef = useRef(null)
 
+  // Most frequent recent expenses -> one-tap "quick add" chips
+  const suggestions = useMemo(() => {
+    if (editing) return []
+    const map = new Map()
+    for (const t of history.slice(0, 300)) {
+      if (t.type !== 'expense' || t._fromRecurring) continue
+      const key = `${t.category}|${t.method}|${t.amount}|${(t.note || '').toLowerCase()}`
+      const e = map.get(key)
+      if (e) e.n++
+      else map.set(key, { n: 1, t })
+    }
+    return [...map.values()].filter((e) => e.n >= 2).sort((a, b) => b.n - a.n).slice(0, 5).map((e) => e.t)
+  }, [history, editing])
+
+  function applySuggestion(t) {
+    setType('expense')
+    setAmount(String(t.amount))
+    setCategory(t.category)
+    setMethod(t.method)
+    setNote(t.note || '')
+    setError('')
+  }
+
   useEffect(() => {
     fetchRates(currency).then(setRates)
   }, [currency])
@@ -38,12 +61,16 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
     if (!valid) setCategory(categoriesFor(type)[0].id)
   }, [type]) // eslint-disable-line
 
+  // onClose is a new function every parent render — keep it in a ref so this effect
+  // runs once (otherwise the amount field steals focus back whenever the app re-renders).
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     const t = setTimeout(() => amountRef.current?.focus(), 120)
-    const onKey = (e) => e.key === 'Escape' && onClose()
+    const onKey = (e) => e.key === 'Escape' && onCloseRef.current()
     window.addEventListener('keydown', onKey)
     return () => { clearTimeout(t); window.removeEventListener('keydown', onKey) }
-  }, [onClose])
+  }, [])
 
   const rawVal = parseFloat(amount)
   const needsConversion = fromCurrency !== currency && !isNaN(rawVal) && rawVal > 0
@@ -71,16 +98,31 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
       <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Edit transaction' : 'Add transaction'}>
         <div className="modal-grab" />
         <div className="modal-head">
-          <h3 style={{ fontSize: 16 }}>{editing ? 'Edit transaction' : 'Add transaction'}</h3>
+          <h3 style={{ fontSize: 16 }}>{editing ? 'Edit transaction' : trackIncome ? 'Add transaction' : 'Add expense'}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><IconClose /></button>
         </div>
 
-        <div className="field" style={{ marginBottom: 14 }}>
-          <div className="seg seg-type" role="tablist" style={{ width: '100%' }}>
-            <button role="tab" className={type === 'expense' ? 'active expense' : ''} style={{ flex: 1 }} onClick={() => setType('expense')}>Expense</button>
-            <button role="tab" className={type === 'income' ? 'active income' : ''} style={{ flex: 1 }} onClick={() => setType('income')}>Income</button>
+        {(trackIncome || type === 'income') && (
+          <div className="field" style={{ marginBottom: 14 }}>
+            <div className="seg seg-type" role="tablist" style={{ width: '100%' }}>
+              <button role="tab" className={type === 'expense' ? 'active expense' : ''} style={{ flex: 1 }} onClick={() => setType('expense')}>Expense</button>
+              <button role="tab" className={type === 'income' ? 'active income' : ''} style={{ flex: 1 }} onClick={() => setType('income')}>Income</button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {suggestions.length > 0 && !amount && (
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label className="label">Quick add</label>
+            <div className="chips">
+              {suggestions.map((t) => (
+                <button key={t.id} type="button" className="chip" onClick={() => applySuggestion(t)}>
+                  <span>{CATEGORY_MAP[t.category]?.icon || '•'}</span> {t.note || CATEGORY_MAP[t.category]?.label} · {t.amount}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="field" style={{ marginBottom: needsConversion ? 6 : 13 }}>
           <label className="label">Amount</label>
@@ -213,7 +255,7 @@ export default function TransactionForm({ initial, currency, onSave, onClose }) 
         </div>
 
         <button className="btn btn-primary btn-block" onClick={submit}>
-          {editing ? 'Save changes' : 'Add transaction'}
+          {editing ? 'Save changes' : trackIncome ? 'Add transaction' : 'Add expense'}
         </button>
       </div>
     </div>

@@ -116,7 +116,7 @@ function TxRow({ t, currency, onView, onEdit, onDelete, hideAmounts }) {
 
 // ─── List ────────────────────────────────────────────────────────────────────
 
-export default function TransactionList({ transactions, currency, month, onMonthChange, onEdit, onDelete, onAdd, hideAmounts }) {
+export default function TransactionList({ transactions, trackIncome = true, currency, month, onMonthChange, onEdit, onDelete, onAdd, hideAmounts }) {
   const [q, setQ] = useState('')
   const [type, setType] = useState('all')
   const [method, setMethod] = useState('all')
@@ -151,7 +151,7 @@ export default function TransactionList({ transactions, currency, month, onMonth
     return [...map.entries()]
   }, [filtered])
 
-  const catOptions = type === 'income' ? INCOME_CATEGORIES : type === 'expense' ? EXPENSE_CATEGORIES : [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]
+  const catOptions = !trackIncome ? EXPENSE_CATEGORIES : type === 'income' ? INCOME_CATEGORIES : type === 'expense' ? EXPENSE_CATEGORIES : [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]
 
   return (
     <div className="section">
@@ -164,10 +164,12 @@ export default function TransactionList({ transactions, currency, month, onMonth
       </div>
 
       <div className="stat-grid">
-        <div className="stat">
-          <div className="stat-top">Income</div>
-          <div className="stat-val num pos">{maskMoney(scopeTotals.income, currency, hideAmounts)}</div>
-        </div>
+        {trackIncome && (
+          <div className="stat">
+            <div className="stat-top">Income</div>
+            <div className="stat-val num pos">{maskMoney(scopeTotals.income, currency, hideAmounts)}</div>
+          </div>
+        )}
         <div className="stat">
           <div className="stat-top">Expenses</div>
           <div className="stat-val num neg">{maskMoney(scopeTotals.expense, currency, hideAmounts)}</div>
@@ -181,11 +183,13 @@ export default function TransactionList({ transactions, currency, month, onMonth
             <input className="input" placeholder="Search notes or categories…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div className="filter-row">
-            <select className="select filter-select" value={type} onChange={(e) => { setType(e.target.value); setCategory('all') }}>
-              <option value="all">All types</option>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
+            {trackIncome && (
+              <select className="select filter-select" value={type} onChange={(e) => { setType(e.target.value); setCategory('all') }}>
+                <option value="all">All types</option>
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+            )}
             <select className="select filter-select" value={method} onChange={(e) => setMethod(e.target.value)}>
               <option value="all">All methods</option>
               {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
@@ -210,11 +214,12 @@ export default function TransactionList({ transactions, currency, month, onMonth
           <div>
             {groups.map(([date, items]) => {
               const dayTotal = items.reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0)
+              const dayColor = !trackIncome ? 'var(--ink-soft)' : dayTotal >= 0 ? 'var(--income)' : 'var(--ink-soft)'
               return (
                 <div key={date} style={{ marginBottom: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '14px 4px 4px', borderBottom: '1px solid var(--border)' }}>
                     <span className="eyebrow">{relativeDay(date)}</span>
-                    <span className="num" style={{ fontSize: 12.5, fontWeight: 600, color: dayTotal >= 0 ? 'var(--income)' : 'var(--ink-soft)' }}>
+                    <span className="num" style={{ fontSize: 12.5, fontWeight: 600, color: dayColor }}>
                       {hideAmounts ? AMOUNT_MASK : (dayTotal >= 0 ? '+' : '−') + fmtMoney(Math.abs(dayTotal), currency)}
                     </span>
                   </div>
